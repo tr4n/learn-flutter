@@ -13,6 +13,19 @@ Hệ thống tài liệu được tổ chức thành **9 module chuyên sâu** v
 ```text
 learn-flutter/
 │
+├── flutter-fundamentals/                    # 🌟 [PACKAGE CHUYÊN SÂU] Flutter Fundamentals Chuẩn Google
+│   ├── 01-dart-foundations-for-flutter/     # Null safety, Constructors, Records, Patterns, Collections, Async
+│   ├── 02-widget-architecture-and-lifecycle/# Immutability, Stateless vs Stateful, State Lifecycle, BuildContext, Keys
+│   ├── 03-flutter-layout-system-mastery/    # Constraints, Flex (Row/Col), Stack, Fix Overflow, Responsive, Intrinsics
+│   ├── 04-scrollables-and-slivers-in-depth/ # ScrollController, Virtualization, Slivers, NestedScrollView
+│   ├── 05-material-3-design-and-theming/    # ColorScheme HCT, Typography, ThemeExtension, Cache Image, WidgetState
+│   ├── 06-user-interactions-inputs-and-forms# HitTest, FocusNode, Form Validation, Insets, Custom FormField
+│   ├── 07-navigation-routing-and-deeplinking# Navigator 1.0, PopScope, GoRouter, Deep Linking, Web URL
+│   ├── 08-state-management-core-fundamentals# Ephemeral vs App State, ValueNotifier, InheritedWidget, Provider, BLoC
+│   ├── 09-networking-serialization-and-async# Dio Interceptors, Freezed JSON Models, FutureBuilder, Local Storage
+│   ├── 10-animations-fundamentals/          # Implicit Animations, AnimationController, Hero Transitions
+│   └── 11-testing-and-debugging-the-google-way# Unit Testing (Mocktail), Widget Testing (WidgetTester), DevTools
+│
 ├── 00-android-to-flutter-bridge/            # [MODULE CỐT LÕI CHO ANDROID DEV] Nền Tảng Cơ Bản (Base)
 │   ├── 01-mental-model-android-vs-flutter.md# Chuyển đổi tư duy: Imperative vs Declarative UI, Single-Activity Model
 │   ├── 02-dart-for-kotlin-developers.md     # Dart từ góc nhìn Kotlin: Null safety, Lateinit, Records vs Data Class
