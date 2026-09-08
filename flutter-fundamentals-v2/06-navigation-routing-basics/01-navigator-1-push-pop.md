@@ -319,17 +319,276 @@ PopScope(
 3. `HomeScreen` có logout button → `LoginScreen` (pushAndRemoveUntil)
 4. Form chỉnh sửa profile có `PopScope` ngăn back nếu có thay đổi chưa lưu
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `push`, `pushReplacement`, `pushAndRemoveUntil`?"**
-   - `push`: thêm route mới, có thể back về route cũ
-   - `pushReplacement`: thay route hiện tại — không back được
-   - `pushAndRemoveUntil`: push mới + xóa routes cũ theo predicate
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"`PopScope` vs `WillPopScope`?"**
-   - `WillPopScope`: deprecated từ 3.12, dùng async Future<bool>
-   - `PopScope`: mới, `canPop` sync, `onPopInvokedWithResult` cho result
+---
 
-3. **"Khi nào dùng `PageRouteBuilder`?"**
-   - Khi cần custom transition animation
-   - Fade, scale, slide — bất kỳ animation nào
+#### Q1 [Junior] — "Sự khác biệt giữa `push`, `pushReplacement`, `pushAndRemoveUntil`?"
+
+**Trả lời chuẩn:**
+
+| Method | Stack sau khi gọi | Back button |
+|---|---|---|
+| `push(route)` | [..., current, new] | Quay về current |
+| `pushReplacement(route)` | [..., new] | Quay về route trước current |
+| `pushAndRemoveUntil(route, predicate)` | [routes thỏa predicate, new] | Tùy theo predicate |
+
+```dart
+// push — thêm vào stack
+Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailPage()));
+// Stack: [Home, Detail]
+
+// pushReplacement — replace route hiện tại
+// Dùng cho: Login → Home (không muốn back về Login)
+Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomePage()));
+// Stack: [Home] (Login bị xóa)
+
+// pushAndRemoveUntil — xóa tất cả route cho đến khi gặp route thỏa điều kiện
+// Dùng cho: Logout → Login (xóa toàn bộ stack)
+Navigator.pushAndRemoveUntil(
+  context,
+  MaterialPageRoute(builder: (_) => const LoginPage()),
+  (route) => false, // xóa TẤT CẢ routes
+);
+// Stack: [Login]
+
+// pushAndRemoveUntil — giữ lại đến Home
+Navigator.pushAndRemoveUntil(
+  context,
+  MaterialPageRoute(builder: (_) => const SuccessPage()),
+  ModalRoute.withName('/home'), // giữ Home và trên đó
+);
+```
+
+---
+
+#### Q2 [Junior] — "`PopScope` vs `WillPopScope` — khác biệt và cách dùng?"
+
+**Trả lời chuẩn:**
+
+`WillPopScope` deprecated từ Flutter 3.12 vì không tương thích với predictive back gesture (Android 14+).
+
+| | `WillPopScope` (deprecated) | `PopScope` (Flutter 3.12+) |
+|---|---|---|
+| **Callback** | `Future<bool> onWillPop()` | `void onPopInvokedWithResult(didPop, result)` |
+| **Control pop** | `return false` để cancel | `canPop: false` để disable |
+| **Predictive back** | Không support | Support đầy đủ |
+
+```dart
+// ✅ PopScope — cách mới
+PopScope(
+  canPop: false, // disable pop (back button bị disable)
+  onPopInvokedWithResult: (didPop, result) {
+    if (didPop) return; // đã pop rồi, không cần làm gì
+    // Custom logic khi user cố pop nhưng bị block
+    showDialog(context: context, builder: (_) => const ExitDialog());
+  },
+  child: const MyPage(),
+)
+
+// Cho phép pop conditionally:
+PopScope(
+  canPop: _formHasNoChanges, // true = allow pop, false = block
+  onPopInvokedWithResult: (didPop, _) {
+    if (!didPop) _showUnsavedChangesDialog();
+  },
+  child: const MyForm(),
+)
+```
+
+---
+
+#### Q3 [Middle] — "Khi nào dùng `PageRouteBuilder`? Cách implement custom transition?"
+
+**Trả lời chuẩn:**
+
+`PageRouteBuilder` cho phép custom hoàn toàn transition animation giữa routes:
+
+```dart
+// Fade transition
+Navigator.push(
+  context,
+  PageRouteBuilder(
+    pageBuilder: (ctx, animation, secondaryAnimation) => const DetailPage(),
+    transitionsBuilder: (ctx, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: animation, // 0.0 → 1.0 khi push
+        child: child,
+      );
+    },
+    transitionDuration: const Duration(milliseconds: 300),
+  ),
+);
+
+// Slide from bottom
+transitionsBuilder: (ctx, animation, secondaryAnimation, child) {
+  final tween = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+      .chain(CurveTween(curve: Curves.easeOut));
+  return SlideTransition(
+    position: animation.drive(tween),
+    child: child,
+  );
+},
+
+// Scale + fade
+transitionsBuilder: (ctx, anim, secAnim, child) {
+  return ScaleTransition(
+    scale: anim.drive(CurveTween(curve: Curves.elasticOut)),
+    child: FadeTransition(opacity: anim, child: child),
+  );
+},
+```
+
+**`animation`:** 0.0 → 1.0 khi route enter (push). 1.0 → 0.0 khi route exit (pop).
+**`secondaryAnimation`:** 1.0 → 0.0 khi một route mới được push ON TOP của route này.
+
+---
+
+#### Q4 [Senior] — "Navigator stack là gì ở tầng implementation? `Overlay` và `OverlayEntry` liên quan thế nào?"
+
+**Trả lời chuẩn:**
+
+`Navigator` không maintain một "stack" theo nghĩa đen — nó dùng `Overlay` để hiển thị routes:
+
+```
+Navigator widget
+  ↓ holds
+  _RouteEntry list (= logical "stack")
+  ↓ renders through
+  Overlay widget              ← special Stack-like widget
+    OverlayEntry (route /home)
+    OverlayEntry (route /profile)  ← pushed, rendered on top
+```
+
+**Khi `Navigator.push()` được gọi:**
+1. Navigator tạo `_RouteEntry` với route mới
+2. Route build widget thông qua `buildPage()`
+3. `OverlayEntry` được tạo với route's page
+4. `Overlay.insert(overlayEntry)` — route hiện trên screen
+5. Transition animation chạy (`_ModalRoute._animation`)
+
+**Khi `Navigator.pop()` được gọi:**
+1. Top `_RouteEntry` được marked as `popping`
+2. Reverse animation chạy
+3. Sau animation hoàn thành: `overlayEntry.remove()` — route biến mất
+4. State của route bị `dispose()`
+
+**Tại sao Overlay thay vì Stack:** Overlay cho phép insert entries từ bất kỳ đâu (Dialog, SnackBar, Tooltip) mà không cần thay đổi widget tree structure.
+
+---
+
+#### Q5 [Middle] — "`Navigator.of(context, rootNavigator: true)` vs mặc định — khi nào cần?"
+
+**Trả lời chuẩn:**
+
+```dart
+// Mặc định: tìm Navigator gần nhất trong tree
+Navigator.of(context)
+
+// rootNavigator: true: bỏ qua nested navigators, lấy root Navigator
+Navigator.of(context, rootNavigator: true)
+```
+
+**Khi cần `rootNavigator: true`:**
+
+```dart
+// Scenario: App có nested Navigator trong Tab
+MaterialApp (root Navigator)
+  └─ Scaffold
+      └─ BottomNavigationBar
+          └─ TabView
+              └─ TabNavigator (nested Navigator)
+                  └─ TabDetailPage
+
+// ❌ Vấn đề: Dialog show trong nested Navigator → Dialog cũng nằm trong Tab
+showDialog(
+  context: context, // context của TabDetailPage
+  builder: (_) => const AlertDialog(...),
+);
+// Dialog bị clip trong Tab, không phủ toàn màn hình!
+
+// ✅ Fix: dùng rootNavigator để show Dialog ở root level
+showDialog(
+  context: context,
+  useRootNavigator: true, // Dialog phủ toàn màn hình kể cả TabBar
+  builder: (_) => const AlertDialog(...),
+);
+```
+
+---
+
+#### Q6 [Middle] — "`PopScope.canPop = false` — Flutter xử lý back gesture thế nào trên Android/iOS?"
+
+**Trả lời chuẩn:**
+
+**Android predictive back gesture (Android 14+):**
+- Khi `canPop = true`: gesture preview animation hiện — user thấy màn hình trước khi pop
+- Khi `canPop = false`: gesture bị consumed nhưng không trigger pop — `onPopInvokedWithResult(false, null)` được gọi
+
+**iOS swipe-to-back gesture:**
+- Khi `canPop = true`: swipe từ left edge → slide transition ngược → pop
+- Khi `canPop = false`: swipe gesture bị disable — không có animation preview
+
+**Cơ chế Flutter:**
+```
+User gesture → iOS/Android gesture recognizer
+  → BackGestureRecognizer (Flutter)
+    → check: route.popGestureEnabled
+      → route.popGestureEnabled = canPop && !route.hasScopedWillPopCallback
+        → true: begin pop gesture
+        → false: consume gesture, gọi onPopInvokedWithResult(false, null)
+```
+
+**Điểm quan trọng:** `PopScope` wrap child và override `popGestureEnabled` của route hiện tại — không phải custom GestureDetector.
+
+---
+
+#### Q7 [Trace Code] — "`pushAndRemoveUntil` với predicate: xác định stack còn lại"
+
+```dart
+// Initial stack: [SplashPage, LoginPage, HomePage, ProfilePage, SettingsPage]
+// Đang ở SettingsPage, thực thi:
+
+// Case A:
+Navigator.pushAndRemoveUntil(
+  context,
+  MaterialPageRoute(builder: (_) => const NewPage()),
+  (route) => route.isFirst,
+);
+
+// Case B:
+Navigator.pushAndRemoveUntil(
+  context,
+  MaterialPageRoute(builder: (_) => const NewPage()),
+  ModalRoute.withName('/home'),
+);
+
+// Case C:
+Navigator.pushAndRemoveUntil(
+  context,
+  MaterialPageRoute(builder: (_) => const NewPage()),
+  (route) => false,
+);
+```
+
+**Stack sau mỗi case:**
+
+**Case A — `(route) => route.isFirst`:** Giữ lại route đầu tiên (SplashPage), xóa phần còn lại, thêm NewPage
+```
+Stack: [SplashPage, NewPage]
+```
+
+**Case B — `ModalRoute.withName('/home')`:** Xóa từ top xuống cho đến khi gặp route tên `/home` (inclusive nếu không phải `/home`). Giữ lại `/home` và mọi thứ trước nó:
+```
+Stack: [SplashPage, LoginPage, HomePage, NewPage]
+// (Xóa ProfilePage, SettingsPage; giữ HomePage vì tên khớp)
+```
+
+**Case C — `(route) => false`:** Predicate luôn false → xóa TẤT CẢ routes cũ:
+```
+Stack: [NewPage]
+// Xóa SplashPage, LoginPage, HomePage, ProfilePage, SettingsPage
+// Không thể back — NewPage là route duy nhất
+```

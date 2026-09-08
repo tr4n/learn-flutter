@@ -413,16 +413,257 @@ Positioned.fill(child: Widget())
 - Badge: Container với `BoxDecoration(shape: BoxShape.circle)`
 - Border white: `Border.all(color: Colors.white, width: 2)`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Stack xác định size như thế nào?"**
-   - Size = largest non-positioned child
-   - Nếu tất cả đều Positioned → size = constraint từ parent (tight hoặc match parent)
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `Align` và `Positioned` trong Stack?"**
-   - `Align`: dùng alignment fraction (-1.0 đến 1.0) — responsive theo Stack size
-   - `Positioned`: dùng pixel offsets (left, top, right, bottom) — absolute
+---
 
-3. **"`LayoutBuilder` vs `MediaQuery` — khi nào dùng cái nào?"**
-   - `LayoutBuilder`: available space từ parent (tốt nhất cho responsive component)
-   - `MediaQuery`: screen dimensions (tốt cho screen-level decisions)
+#### Q1 [Junior] — "Stack xác định size như thế nào? Positioned vs non-positioned children?"
+
+**Trả lời chuẩn:**
+
+Stack size phụ thuộc vào **non-positioned children** (children không bọc trong `Positioned`):
+
+| Trường hợp | Stack size |
+|---|---|
+| Có non-positioned children | Bằng child lớn nhất (trong phạm vi constraint) |
+| Tất cả đều Positioned | Fill toàn bộ parent constraint (tight hoặc loose) |
+
+```dart
+// Stack với non-positioned child → size = child size
+Stack(
+  children: [
+    Container(width: 200, height: 200, color: Colors.blue),  // non-positioned
+    Positioned(top: 10, left: 10, child: Icon(Icons.star)),   // positioned
+  ],
+) // Stack size = 200×200 (theo non-positioned Container)
+
+// Stack không có non-positioned child → fill parent
+Stack(
+  children: [
+    Positioned(top: 0, left: 0, right: 0, bottom: 0, child: Container(color: blue)),
+    Positioned(top: 10, right: 10, child: Icon(Icons.star)),
+  ],
+) // Stack fill toàn bộ parent
+```
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `Align` và `Positioned` trong Stack?"
+
+**Trả lời chuẩn:**
+
+| | `Align` | `Positioned` |
+|---|---|---|
+| **Positioning** | Fraction alignment (-1.0 đến 1.0) | Pixel offsets (left, top, right, bottom) |
+| **Responsive** | Tự điều chỉnh theo Stack size | Cố định tại pixel offset |
+| **Chiếm Stack size** | Có (non-positioned) | Không |
+| **Use case** | Center, top-right corner | Absolute position |
+
+```dart
+Stack(
+  children: [
+    Container(width: 300, height: 300, color: Colors.grey),
+    
+    // Align — responsive: luôn ở bottom-right của Stack
+    const Align(
+      alignment: Alignment.bottomRight,
+      child: FloatingActionButton(onPressed: null, child: Icon(Icons.add)),
+    ),
+    
+    // Positioned — absolute: 10px từ top, 10px từ right
+    const Positioned(
+      top: 10,
+      right: 10,
+      child: Icon(Icons.star, color: Colors.red),
+    ),
+  ],
+)
+```
+
+---
+
+#### Q3 [Middle] — "`Overlay` trong Flutter là gì? Navigator dùng Overlay thế nào?"
+
+**Trả lời chuẩn:**
+
+`Overlay` là widget đặc biệt hoạt động như một **Stack có thể insert entries từ bất kỳ đâu trong app**. Nó là infrastructure của Navigator, Dialog, SnackBar, và Tooltip.
+
+```
+MaterialApp
+  └─ Navigator
+      └─ Overlay         ← widget đặc biệt — "floating layer" trên toàn app
+          ├─ OverlayEntry (route /home)
+          ├─ OverlayEntry (route /profile)  ← push mới → insert OverlayEntry
+          └─ OverlayEntry (dialog)           ← Dialog.show() → insert OverlayEntry
+```
+
+**Cách Navigator dùng Overlay:**
+```dart
+// Khi Navigator.push() được gọi:
+final overlayEntry = OverlayEntry(
+  builder: (context) => newRoute.buildPage(context, ...), // render route mới
+);
+Overlay.of(context)?.insert(overlayEntry); // đặt route mới lên trên
+
+// Khi Navigator.pop():
+overlayEntry.remove(); // xóa route khỏi Overlay
+```
+
+**Custom Overlay:** Bạn có thể dùng `Overlay.of(context)?.insert()` để show custom widget trên toàn screen mà không cần Dialog/Route — useful cho tooltips, custom dropdown, v.v.
+
+---
+
+#### Q4 [Senior] — "Stack paint order: child nào được paint trên cùng? Hit testing đi theo thứ tự nào?"
+
+**Trả lời chuẩn:**
+
+**Paint order:** Children trong Stack được paint theo thứ tự **index tăng dần** — child cuối cùng trong list sẽ được paint trên cùng (on top).
+
+```dart
+Stack(
+  children: [
+    Container(color: Colors.red),   // (0) — paint đầu tiên, ở dưới cùng
+    Container(color: Colors.blue),  // (1) — paint thứ hai, che lên red
+    Container(color: Colors.green), // (2) — paint cuối, ở trên cùng (visible)
+  ],
+)
+// Kết quả: chỉ thấy green (che toàn bộ)
+```
+
+**Hit testing:** Đi theo thứ tự **ngược lại** (last child first) — child visible nhất (painted last) được kiểm tra đầu tiên trong hit test. Điều này đảm bảo tap events đến widget visible, không phải widget bị che.
+
+```dart
+Stack(
+  children: [
+    GestureDetector(                    // (0) — hit test sau
+      onTap: () => print('red tapped'),
+      child: Container(width: 200, height: 200, color: Colors.red),
+    ),
+    Positioned(                         // (1) — hit test trước (visible, painted last)
+      top: 50, left: 50,
+      child: GestureDetector(
+        onTap: () => print('blue tapped'),
+        child: Container(width: 100, height: 100, color: Colors.blue),
+      ),
+    ),
+  ],
+)
+// Tap vào vùng blue → "blue tapped" (hit test dừng tại blue)
+// Tap vào vùng red (ngoài blue) → "red tapped"
+```
+
+---
+
+#### Q5 [Middle] — "`Positioned.fill` vs `Positioned(left:0, top:0, right:0, bottom:0)` — có khác không?"
+
+**Trả lời chuẩn:**
+
+**Không khác** về layout behavior — `Positioned.fill` là convenience constructor:
+
+```dart
+// Hai cách này hoàn toàn tương đương:
+Positioned.fill(child: Container(color: Colors.red))
+Positioned(left: 0, top: 0, right: 0, bottom: 0, child: Container(color: Colors.red))
+```
+
+`Positioned.fill` cũng có `offset` parameter cho khoảng cách đều nhau:
+```dart
+Positioned.fill(
+  left: 16,    // từ left edge + 16px
+  top: 16,     // từ top edge + 16px
+  right: 16,   // từ right edge + 16px
+  bottom: 16,  // từ bottom edge + 16px
+  child: ...,
+)
+// Tương đương Positioned(left:16, top:16, right:16, bottom:16)
+```
+
+**Lưu ý:** Khi Positioned có cả `left` và `right` (hoặc `top` và `bottom`), width (hoặc height) của child được tính: `Stack.width - left - right`. Đây là cách làm child fill specific region trong Stack.
+
+---
+
+#### Q6 [Middle] — "Tại sao `Stack` không thể dùng `Spacer`? Cách thay thế?"
+
+**Trả lời chuẩn:**
+
+`Spacer` là `Expanded(child: SizedBox.shrink())` — nó chỉ hoạt động trong **Flex layout** (Row/Column) vì dựa vào `RenderFlex.performLayout()` để chia flex space.
+
+`Stack` dùng `RenderStack.performLayout()` — không có flex concept, không có "remaining space" để distribute. Positioned children dùng absolute coordinates, non-positioned children chỉ align trong Stack bounds.
+
+**Thay thế cho Spacer trong Stack:**
+
+```dart
+// Muốn đặt widget ở bottom của Stack:
+Stack(
+  children: [
+    Container(width: 200, height: 200, color: Colors.blue),
+    
+    // ❌ Spacer không hoạt động trong Stack
+    
+    // ✅ Dùng Align
+    const Align(
+      alignment: Alignment.bottomCenter,
+      child: Text('Bottom'),
+    ),
+    
+    // ✅ Dùng Positioned
+    const Positioned(
+      bottom: 0,
+      left: 0, right: 0,
+      child: Text('Bottom'),
+    ),
+  ],
+)
+```
+
+---
+
+#### Q7 [Trace Code] — "Stack với non-positioned + positioned child: xác định final size của Stack"
+
+```dart
+Widget build(BuildContext context) {
+  return Center(
+    child: Stack(
+      children: [
+        // (A) Non-positioned
+        Container(
+          width: 200,
+          height: 150,
+          color: Colors.blue,
+        ),
+        // (B) Positioned với width/height implicit
+        Positioned(
+          top: 10,
+          left: 10,
+          child: Container(
+            width: 300, // lớn hơn Stack!
+            height: 50,
+            color: Colors.red.withOpacity(0.7),
+          ),
+        ),
+        // (C) Positioned.fill
+        Positioned.fill(
+          child: Container(color: Colors.green.withOpacity(0.3)),
+        ),
+      ],
+    ),
+  );
+}
+```
+
+**Xác định Stack size và visual:**
+
+**Stack size = size của non-positioned children = `(A) = 200×150`**
+
+Vì Center truyền loose constraint, Stack chọn minimum size cần thiết = `(A)`.
+
+**Visual từ dưới lên:**
+1. `(A)` Blue 200×150 — painted first (bottom)
+2. `(B)` Red 300×50 tại (10,10) — **300px > 200px (Stack width)** → overflow 100px bên phải Stack — visible nếu không có clip
+3. `(C)` Positioned.fill = fill Stack size (200×150) — Green transparent overlay
+
+**Overflow behavior:** `(B)` overflow ra ngoài Stack nhưng không bị clip mặc định. Trong debug mode thấy overflow stripe. Để clip: `Stack(clipBehavior: Clip.hardEdge, ...)` hoặc `ClipRect(child: Stack(...))`.
+
+Nếu dùng `Stack(clipBehavior: Clip.hardEdge)` → `(B)` bị clip tại 200px width.

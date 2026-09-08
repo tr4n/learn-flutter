@@ -458,18 +458,246 @@ class _ChildWidgetState extends State<ChildWidget> {
 2. `widget.label` trong child có update theo `_parentCount` không?
 3. Nếu thêm `key: UniqueKey()` vào ChildWidget → kết quả thay đổi thế nào?
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Tại sao Widget.createState() trả về State, không phải Widget tự có State?"**
-   - Widget phải immutable → không thể có mutable State
-   - State được giữ bởi Element, không phải Widget
-   - Khi Widget mới được tạo (bởi parent rebuild), Element reuse State cũ
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"`didUpdateWidget` được gọi khi nào?"**
-   - Khi parent rebuild tạo Widget mới cùng runtimeType và key
-   - Element reuse → update `widget` property → gọi `didUpdateWidget(oldWidget)`
+---
 
-3. **"Khi nào nên convert StatelessWidget thành StatefulWidget?"**
-   - Khi cần internal state (user interaction)
-   - Khi cần lifecycle hooks (initState, dispose)
-   - Khi cần AnimationController, Timer, Stream subscription
+#### Q1 [Junior] — "Tại sao `Widget.createState()` trả về `State`, không phải Widget tự có State?"
+
+**Trả lời chuẩn:**
+
+Vì **Widget phải immutable** — đây là quy tắc căn bản của Flutter. Một Widget immutable không thể chứa mutable data như counter, text, v.v.
+
+Thay vào đó, Flutter tách biệt:
+- **Widget** = immutable config/blueprint (đặt trong tree)
+- **State** = mutable data (được giữ bởi `StatefulElement`)
+
+Khi `StatefulElement` lần đầu mount, nó gọi `widget.createState()` và giữ reference đến State object. Khi parent rebuild → tạo `StatefulWidget` mới → `StatefulElement.update(newWidget)` → State **không bị recreate** — chỉ `widget` property của State được cập nhật.
+
+```
+StatefulWidget (immutable, recreated mỗi rebuild)
+    ↓ createState() — chỉ gọi 1 lần
+StatefulElement (mutable, tồn tại suốt lifecycle)
+    ↓ giữ reference
+_MyState (mutable, tồn tại suốt lifecycle)
+    → _count, _controller, v.v.
+```
+
+---
+
+#### Q2 [Junior] — "Khi nào nên convert `StatelessWidget` thành `StatefulWidget`?"
+
+**Trả lời chuẩn:**
+
+Convert khi widget cần **một trong những điều sau**:
+
+| Cần gì | Lý do cần StatefulWidget |
+|---|---|
+| Internal mutable state | `_count`, `_isSelected`, `_text` |
+| Lifecycle hooks | `initState()`, `dispose()`, `didUpdateWidget()` |
+| `AnimationController` | Cần `TickerProvider` (mixin) |
+| `Timer` hoặc periodic task | Cần cleanup trong `dispose()` |
+| Stream subscription | Cần cancel trong `dispose()` |
+| Scroll controller | Cần `ScrollController()` và dispose |
+
+**Nguyên tắc:** Bắt đầu với `StatelessWidget`. Convert sang `StatefulWidget` chỉ khi có lý do cụ thể ở trên. Đừng convert "phòng ngừa" — StatefulWidget có overhead hơn StatelessWidget.
+
+---
+
+#### Q3 [Middle] — "`didUpdateWidget` được gọi khi nào? Sử dụng thế nào cho đúng?"
+
+**Trả lời chuẩn:**
+
+`didUpdateWidget(T oldWidget)` được gọi khi:
+- Parent rebuild → tạo Widget mới cùng `runtimeType + key` (→ `canUpdate()` = true)
+- `StatefulElement.update(newWidget)` → `state.didUpdateWidget(oldWidget)` trước khi rebuild
+
+**Use case điển hình — sync controller với prop mới:**
+
+```dart
+class VideoPlayer extends StatefulWidget {
+  final String url;
+  const VideoPlayer({super.key, required this.url});
+  @override
+  State<VideoPlayer> createState() => _VideoPlayerState();
+}
+
+class _VideoPlayerState extends State<VideoPlayer> {
+  late VideoController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoController(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(VideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // URL thay đổi → cần load lại video
+    if (oldWidget.url != widget.url) {
+      _controller.dispose();
+      _controller = VideoController(widget.url);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+```
+
+**Lưu ý:** Nếu không override `didUpdateWidget`, State sẽ dùng controller/data cũ khi prop thay đổi — đây là bug phổ biến.
+
+---
+
+#### Q4 [Senior] — "Khi parent rebuild, `StatefulWidget` child có bị recreate không? State có bị reset không?"
+
+**Trả lời chuẩn:**
+
+**Widget** bị recreate (tạo object mới), nhưng **State không bị reset**. Đây là điểm then chốt:
+
+```
+Parent.build() được gọi
+  ↓ tạo ChildWidget() mới (object mới trên heap)
+  ↓ Element.updateChild(oldChildElement, newChildWidget)
+    ↓ canUpdate(oldChildElement.widget, newChildWidget) = true?
+      YES → StatefulElement.update(newChildWidget)
+              ↓ state._widget = newChildWidget  (cập nhật config)
+              ↓ state.didUpdateWidget(oldWidget) (notify thay đổi)
+              ↓ element.markNeedsBuild()
+              → State._count, State._controller... KHÔNG ĐỔI
+      NO  → element.unmount() + newChildWidget.createElement()
+              → createState() được gọi lại → State MỚI → reset hoàn toàn
+```
+
+**Thực tế:** Vì parent thường tạo child widget với cùng `runtimeType` và không có key (hoặc cùng key), `canUpdate()` = true → State tồn tại bền vững qua mọi rebuild của parent. Đây là lý do ta có thể tin tưởng State không bị mất ngẫu nhiên.
+
+---
+
+#### Q5 [Middle] — "`mounted` property là gì? Tại sao async gap nguy hiểm?"
+
+**Trả lời chuẩn:**
+
+`State.mounted` trả về `true` khi State hiện đang được attach vào Element tree (giữa `initState()` và `dispose()`). Sau `dispose()`, `mounted = false`.
+
+**Nguy hiểm của async gap:** Bất kỳ `await` nào đều tạo một "gap" — code sau `await` chạy trong một microtask/event sau đó. Trong khoảng thời gian này, widget có thể bị unmount (user navigate back, widget bị remove).
+
+```dart
+// ❌ Bug tiềm ẩn — crash hoặc setState after dispose
+Future<void> loadData() async {
+  final data = await repository.fetch();  // await tạo gap
+  // Widget có thể đã dispose trong khi await
+  setState(() => _data = data); // nếu disposed → crash trong debug, silent bug trong release
+}
+
+// ✅ Pattern an toàn
+Future<void> loadData() async {
+  final data = await repository.fetch();
+  if (!mounted) return; // guard — kiểm tra trước khi dùng State
+  setState(() => _data = data);
+}
+```
+
+**Flutter lint:** `use_build_context_synchronously` sẽ warn về việc dùng `context` sau `await` mà không check `mounted`.
+
+---
+
+#### Q6 [Middle] — "`StatelessWidget.build()` vs `State.build()` — Framework gọi hai cái này khác nhau thế nào?"
+
+**Trả lời chuẩn:**
+
+| | `StatelessWidget.build()` | `State.build()` |
+|---|---|---|
+| **Gọi bởi** | `StatelessElement.build()` | `StatefulElement.build()` |
+| **Khi nào** | Mỗi khi `StatelessElement` bị mark dirty | Mỗi khi `StatefulElement` bị mark dirty (qua setState, InheritedWidget thay đổi) |
+| **Context là** | `StatelessElement` (chính nó) | `StatefulElement` (element của widget, không phải State) |
+| **Return** | Widget mô tả UI | Widget mô tả UI |
+
+```dart
+// StatelessElement.build() — từ Flutter source (simplified)
+@override
+Widget build() => (widget as StatelessWidget).build(this);
+
+// StatefulElement.build() — từ Flutter source (simplified)
+@override
+Widget build() => state.build(this); // gọi State.build, truyền self (element) làm context
+```
+
+Điểm khác biệt quan trọng: `StatefulElement` quản lý lifecycle của State, còn `StatelessElement` chỉ đơn giản delegate build về Widget. Với StatefulWidget, `context` trong `build(context)` là `StatefulElement` — element đại diện cho Widget, không phải cho State.
+
+---
+
+#### Q7 [Trace Code] — "Xác định lifecycle sequence khi parent thay đổi config của StatefulWidget child"
+
+```dart
+class Parent extends StatefulWidget {
+  const Parent({super.key});
+  @override
+  State<Parent> createState() => _ParentState();
+}
+
+class _ParentState extends State<Parent> {
+  int config = 0;
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Child(config: config),
+    ElevatedButton(
+      onPressed: () => setState(() => config++),
+      child: const Text('Change Config'),
+    ),
+  ]);
+}
+
+class Child extends StatefulWidget {
+  final int config;
+  const Child({super.key, required this.config});
+  @override
+  State<Child> createState() => _ChildState();
+}
+
+class _ChildState extends State<Child> {
+  @override
+  void initState() { super.initState(); print('initState'); }
+
+  @override
+  void didUpdateWidget(Child old) {
+    super.didUpdateWidget(old);
+    print('didUpdateWidget: ${old.config} → ${widget.config}');
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    print('didChangeDependencies');
+  }
+
+  @override
+  Widget build(BuildContext context) { print('build'); return Text('${widget.config}'); }
+
+  @override
+  void dispose() { print('dispose'); super.dispose(); }
+}
+```
+
+**Lần đầu load app:** `initState → didChangeDependencies → build`
+
+**Nhấn button (config: 0→1):**
+```
+didUpdateWidget: 0 → 1
+build
+```
+*(initState và didChangeDependencies KHÔNG được gọi lại — State được reuse)*
+
+**Nếu đổi Child thành `Child(key: UniqueKey(), config: config)`, nhấn button:**
+```
+dispose          ← State cũ bị destroy
+initState        ← State mới được tạo
+didChangeDependencies
+build
+```
+*(UniqueKey() tạo key mới mỗi rebuild → canUpdate() = false → createElement() → State mới)*

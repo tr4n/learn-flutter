@@ -383,16 +383,321 @@ class BuggyScreen extends StatelessWidget {
 4. Thêm refresh button
 5. Thêm error retry
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Tại sao không tạo Future trong `build()`?"**
-   - Mỗi rebuild tạo Future mới → FutureBuilder reset → UI nhìn thấy loading lại
-   - Đặc biệt nghiêm trọng nếu rebuild nhiều lần (parent setState, InheritedWidget)
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `snapshot.hasData` và `snapshot.data != null`?"**
-   - Chúng bằng nhau: `hasData` là shorthand cho `data != null`
-   - Prefer `hasData` vì readable hơn
+---
 
-3. **"Khi nào dùng FutureBuilder vs ViewModel + Provider?"**
-   - FutureBuilder: simple one-off async trong widget — không cần share state
-   - ViewModel + Provider: state cần share, có business logic, cần test
+#### Q1 [Junior] — "Tại sao không tạo `Future` trực tiếp trong `build()`?"
+
+**Trả lời chuẩn:**
+
+Mỗi lần `build()` được gọi → một `Future` mới được tạo → `FutureBuilder` reset về `ConnectionState.waiting` → UI thấy loading lại:
+
+```dart
+// ❌ Bug: Future trong build()
+@override
+Widget build(BuildContext context) {
+  return FutureBuilder<User>(
+    future: repository.fetchUser(), // ← tạo Future MỚI mỗi rebuild
+    builder: (ctx, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const CircularProgressIndicator(); // ← flash mỗi rebuild!
+      }
+      return Text(snapshot.data?.name ?? '');
+    },
+  );
+}
+// Mỗi lần parent setState() → build() → Future mới → loading flash!
+
+// ✅ Đúng: Future trong initState
+late Future<User> _userFuture;
+
+@override
+void initState() {
+  super.initState();
+  _userFuture = repository.fetchUser(); // ← tạo 1 lần
+}
+
+@override
+Widget build(BuildContext context) {
+  return FutureBuilder<User>(
+    future: _userFuture, // ← reuse Future
+    builder: (ctx, snapshot) { ... },
+  );
+}
+```
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `snapshot.hasData` và `snapshot.data != null`?"
+
+**Trả lời chuẩn:**
+
+`hasData` là shorthand getter: `bool get hasData => data != null;` — chúng hoàn toàn tương đương.
+
+**Nhưng cần kết hợp với `connectionState` để UI đúng:**
+
+```dart
+builder: (ctx, snapshot) {
+  // ❌ Thiếu state check — có thể show lỗi ngay cả khi loading
+  if (snapshot.hasError) return Text('Error: ${snapshot.error}');
+  if (snapshot.hasData) return Text(snapshot.data!.name);
+  return const CircularProgressIndicator();
+  // Vấn đề: khi loading, không có data và không có error → CircularProgress
+  // Nhưng khi Future chưa start → waiting state nhưng snapshot.data = null
+
+  // ✅ Đầy đủ state machine
+  switch (snapshot.connectionState) {
+    case ConnectionState.none:
+      return const Text('No future provided');
+    case ConnectionState.waiting:
+      return const CircularProgressIndicator();
+    case ConnectionState.active:
+      return Text('${snapshot.data}'); // cho Stream
+    case ConnectionState.done:
+      if (snapshot.hasError) return Text('Error: ${snapshot.error}');
+      return Text(snapshot.data!.name);
+  }
+}
+```
+
+---
+
+#### Q3 [Middle] — "Khi nào dùng `FutureBuilder` vs `ViewModel + Provider`?"
+
+**Trả lời chuẩn:**
+
+| | `FutureBuilder` | `ViewModel + Provider` |
+|---|---|---|
+| **State sharing** | Không — local to widget | Có — shared across widgets |
+| **Caching** | Không — refetch khi widget rebuild | Có — ViewModel giữ data |
+| **Business logic** | Không | Có — trong ViewModel |
+| **Testing** | Khó | Dễ — test ViewModel independent |
+| **Error retry** | Phải rebuild widget | `viewModel.retry()` |
+
+```dart
+// FutureBuilder — simple, one-off
+// Dùng cho: Avatar URL, thông tin tĩnh, không cần share
+FutureBuilder<String>(
+  future: getUserAvatarUrl(userId),
+  builder: (ctx, snapshot) => snapshot.hasData
+      ? Image.network(snapshot.data!)
+      : const CircleAvatar(),
+)
+
+// ViewModel + Provider — complex, shared
+// Dùng cho: product list, cart, user profile — cần share, cần retry
+class ProductViewModel extends ChangeNotifier {
+  List<Product>? _products;
+  bool _isLoading = false;
+  String? _error;
+  
+  Future<void> loadProducts() async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _products = await repository.getProducts();
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+}
+```
+
+---
+
+#### Q4 [Senior] — "`FutureBuilder` lifecycle: `ConnectionState` transitions là gì?"
+
+**Trả lời chuẩn:**
+
+`FutureBuilder` là `StatefulWidget` — nó duy trì `AsyncSnapshot<T>` và update khi Future state thay đổi:
+
+**State machine:**
+
+```
+Lúc build() chạy lần đầu:
+  future == null → ConnectionState.none, data = null
+  future != null → ConnectionState.waiting, data = null
+  
+  FutureBuilder.addListener(future)  ← subscribe to Future
+
+Khi Future complete thành công:
+  ConnectionState.done, data = result, error = null
+  FutureBuilder.setState() → rebuild
+
+Khi Future complete với error:
+  ConnectionState.done, data = null, error = exception
+  FutureBuilder.setState() → rebuild
+```
+
+**Quan trọng — `initialData`:**
+```dart
+FutureBuilder<List<Product>>(
+  future: _productsFuture,
+  initialData: const [],   // ← show immediately, không có loading flash
+  builder: (ctx, snapshot) {
+    // snapshot.connectionState = waiting nhưng snapshot.data = [] (not null)
+    // hasData = true ngay từ đầu → không show loading nếu có initialData
+    return ListView(...);
+  },
+)
+```
+
+**`ConnectionState.active`:** Chỉ dùng cho `StreamBuilder` — Stream emit nhiều events. Future chỉ có `waiting` và `done`.
+
+---
+
+#### Q5 [Middle] — "`StreamBuilder` vs `StreamBuilder` với `initialData`: khi nào nên cung cấp `initialData`?"
+
+**Trả lời chuẩn:**
+
+```dart
+// Không có initialData — loading state ở đầu
+StreamBuilder<List<Message>>(
+  stream: chatRepository.messages,
+  builder: (ctx, snapshot) {
+    if (!snapshot.hasData) return const CircularProgressIndicator();
+    return MessageList(messages: snapshot.data!);
+  },
+)
+// Khi stream chưa emit → loading spinner
+
+// Với initialData — không có loading flash
+StreamBuilder<List<Message>>(
+  stream: chatRepository.messages,
+  initialData: cachedMessages, // ← từ local storage hoặc cache
+  builder: (ctx, snapshot) {
+    return MessageList(messages: snapshot.data!); // luôn có data
+  },
+)
+```
+
+**Khi nên dùng `initialData`:**
+- Có data cached sẵn (local database, shared preferences)
+- Stream luôn emit nhanh và không muốn loading flicker
+- Offline-first app: show cached data → update khi online
+
+**Khi không nên:**
+- Stream là nguồn data duy nhất (không có cache)
+- Loading state quan trọng với UX (progress indicator)
+- `initialData` có thể stale so với stream data đầu tiên
+
+---
+
+#### Q6 [Middle] — "Tại sao `FutureBuilder` không cancel Future khi widget dispose? Hậu quả?"
+
+**Trả lời chuẩn:**
+
+Dart Futures **không thể cancel** — đây là design decision của Dart (khác với JavaScript Promise hay Kotlin Coroutine). Khi `FutureBuilder` widget dispose, nó chỉ stop listening nhưng Future vẫn tiếp tục chạy.
+
+**Hậu quả:**
+1. **Memory usage:** Future và callbacks vẫn occupy memory cho đến khi complete
+2. **Side effects tiếp tục:** HTTP request vẫn chạy dù user đã navigate away — băng thông bị lãng phí
+3. **setState sau dispose:** Nếu Future callback gọi `setState` → error (nhưng `FutureBuilder` đã handle điều này — nó check `mounted` trước khi update)
+
+**Workarounds:**
+```dart
+// 1. Dio CancelToken — cancel HTTP request
+class _ProductPageState extends State<ProductPage> {
+  CancelToken? _cancelToken;
+  
+  @override
+  void initState() {
+    super.initState();
+    _cancelToken = CancelToken();
+    _future = dio.get('/products', cancelToken: _cancelToken).then(...);
+  }
+  
+  @override
+  void dispose() {
+    _cancelToken?.cancel('widget disposed'); // cancel request
+    super.dispose();
+  }
+}
+
+// 2. Dùng async* + StreamBuilder — stream có thể cancel qua subscription
+// 3. Dùng ViewModel + mounted check pattern
+```
+
+---
+
+#### Q7 [Trace Code] — "Future được tạo trong `build()` vs `initState()`: behavior khác nhau thế nào?"
+
+```dart
+// Version A: Future trong build()
+class VersionA extends StatefulWidget {
+  const VersionA({super.key});
+  @override State<VersionA> createState() => _VersionAState();
+}
+
+class _VersionAState extends State<VersionA> {
+  int _counter = 0; // state khác không liên quan
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      FutureBuilder<String>(
+        future: Future.delayed(const Duration(seconds: 2), () => 'Hello'), // trong build!
+        builder: (ctx, snapshot) {
+          if (!snapshot.hasData) return const CircularProgressIndicator();
+          return Text(snapshot.data!);
+        },
+      ),
+      ElevatedButton(
+        onPressed: () => setState(() => _counter++), // trigger rebuild
+        child: Text('Tap: $_counter'),
+      ),
+    ]);
+  }
+}
+
+// Version B: Future trong initState()
+class _VersionBState extends State<VersionB> {
+  int _counter = 0;
+  late Future<String> _future;
+  
+  @override
+  void initState() {
+    super.initState();
+    _future = Future.delayed(const Duration(seconds: 2), () => 'Hello');
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      FutureBuilder<String>(
+        future: _future, // stable reference
+        builder: (ctx, snapshot) {
+          if (!snapshot.hasData) return const CircularProgressIndicator();
+          return Text(snapshot.data!);
+        },
+      ),
+      ElevatedButton(
+        onPressed: () => setState(() => _counter++),
+        child: Text('Tap: $_counter'),
+      ),
+    ]);
+  }
+}
+```
+
+**Kịch bản: App load → tap button sau 1 giây (trước khi Future complete)**
+
+**Version A:**
+- Load: CircularProgressIndicator hiện
+- Tap button → `setState()` → `build()` → **Future MỚI được tạo** → FutureBuilder reset → loading từ đầu (2 giây nữa)
+- Tap lần 2 → loading lại từ đầu → **infinite loading!**
+
+**Version B:**
+- Load: CircularProgressIndicator hiện
+- Tap button → `setState()` → `build()` → `_future` là cùng reference → FutureBuilder **không reset** → tiếp tục đếm thời gian còn lại
+- Sau 2 giây tổng: "Hello" hiện — không bị interrupt bởi tap
+
+**Output thực tế:**
+- Version A: tap → loading restart mỗi lần → "Hello" không bao giờ hiện nếu tap liên tục
+- Version B: tap không ảnh hưởng → "Hello" hiện sau đúng 2 giây từ lúc load

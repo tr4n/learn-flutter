@@ -300,16 +300,293 @@ Material(
 - `AnimatedContainer` hoặc `Transform.translate` để move item
 - `GestureDetector.onHorizontalDragEnd` để quyết định snap hoặc dismiss
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Gesture Arena là gì?"**
-   - System giải quyết conflict khi nhiều recognizer cùng claim một gesture
-   - Recognizers "compete" — chỉ một winner nhận toàn bộ events
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"GestureDetector vs InkWell: khi nào dùng cái nào?"**
-   - InkWell: Material ripple, button-like interactions
-   - GestureDetector: Custom visuals, complex gesture (swipe, drag, multi-touch)
+---
 
-3. **"Tại sao scroll bị block khi bọc GestureDetector?"**
-   - GestureDetector tham gia gesture arena, có thể win trước ScrollView
-   - Fix: `behavior: HitTestBehavior.translucent` hoặc restructure tree
+#### Q1 [Junior] — "Gesture Arena là gì? Recognizer nào win?"
+
+**Trả lời chuẩn:**
+
+**Gesture Arena** là cơ chế Flutter dùng để giải quyết conflict khi nhiều `GestureRecognizer` cùng muốn claim một pointer event:
+
+```
+User bắt đầu swipe:
+  ↓ PointerDownEvent
+  ↓ HitTest → find all GestureDetectors along path
+  
+Multiple recognizers enter arena:
+  - TapGestureRecognizer ("đây có thể là tap")
+  - HorizontalDragRecognizer ("đây có thể là swipe")
+  - LongPressGestureRecognizer ("đây có thể là long press")
+  
+Arena waits...
+  ↓ PointerMoveEvent (di chuyển 10px ngang)
+  
+HorizontalDrag: "đây là horizontal drag" → claim victory
+TapGestureRecognizer: "không đủ điều kiện" → forfeit
+LongPressRecognizer: "chưa đủ 500ms" → forfeit
+
+HorizontalDrag WINS → nhận tất cả events tiếp theo
+```
+
+**Winner nhận `onPanStart`, `onPanUpdate`, `onPanEnd` callbacks. Losers không nhận gì.** Arena đảm bảo không có gesture ambiguity.
+
+---
+
+#### Q2 [Junior] — "`GestureDetector` vs `InkWell`: khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+| | `GestureDetector` | `InkWell` |
+|---|---|---|
+| **Visual feedback** | Không có | Material ripple effect |
+| **Platform feel** | Bất kỳ | Material Design |
+| **Gestures** | Tất cả (tap, drag, scale...) | Chủ yếu tap |
+| **Clip** | Không | Có (`borderRadius`) |
+| **Semantic** | Không | Có (accessibility) |
+
+```dart
+// InkWell — button-like với ripple
+InkWell(
+  onTap: () => print('tapped'),
+  borderRadius: BorderRadius.circular(8),
+  child: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Text('Button'),
+  ),
+)
+
+// GestureDetector — complex gestures, custom visuals
+GestureDetector(
+  onTap: () {},
+  onDoubleTap: () {},
+  onLongPress: () {},
+  onPanUpdate: (details) => print('dragging: ${details.delta}'),
+  onScaleUpdate: (details) => print('scaling: ${details.scale}'),
+  child: Container(color: Colors.blue),
+)
+
+// Thường kết hợp: InkWell bên ngoài, GestureDetector cho complex gesture
+```
+
+---
+
+#### Q3 [Middle] — "Tại sao scroll bị block khi bọc `GestureDetector`? Fix thế nào?"
+
+**Trả lời chuẩn:**
+
+`GestureDetector` tham gia gesture arena với `ScrollView`. Khi user bắt đầu scroll, cả `GestureDetector` (nếu có `onPanUpdate`) và `ScrollView` đều claim gesture → conflict → người thắng block người thua.
+
+```dart
+// ❌ Scroll bị block — GestureDetector win trước
+GestureDetector(
+  onPanUpdate: (details) => print('pan'), // compete với scroll
+  child: ListView.builder(...),
+)
+
+// ✅ Fix 1: behavior = translucent — GestureDetector nhận event nhưng không chặn
+GestureDetector(
+  onTap: () {}, // chỉ tap, không pan
+  behavior: HitTestBehavior.translucent, // event pass-through cho children
+  child: ListView.builder(...),
+)
+
+// ✅ Fix 2: Tách gesture area và scroll area
+Stack(children: [
+  ListView.builder(...), // scroll freely
+  GestureDetector(       // nhận gesture ở area riêng
+    onHorizontalDragEnd: (details) => _onSwipe(details),
+    child: const SizedBox.expand(),
+  ),
+])
+
+// ✅ Fix 3: Dùng Listener thay vì GestureDetector (low-level, không compete)
+Listener(
+  onPointerDown: (e) => print('pointer down'),
+  child: ListView.builder(...),
+)
+```
+
+---
+
+#### Q4 [Senior] — "Gesture Arena mechanics: `GestureArenaManager.sweep()` hoạt động thế nào?"
+
+**Trả lời chuẩn:**
+
+`GestureArenaManager` quản lý tất cả arenas (mỗi pointer có một arena riêng):
+
+```dart
+// GestureArena lifecycle:
+// 1. PointerDownEvent → open new arena cho pointer ID
+// 2. HitTest → collect GestureDetectors → mỗi recognizer add vào arena
+// 3. Arena "tracking state" — đợi recognizers decide
+
+// Recognizer có thể:
+// - resolvePointer(winner) → claim victory
+// - rejectGesture(pointer) → forfeit
+
+// sweep() — được gọi khi tất cả members đã decide hoặc pointer up
+void sweep(int pointer) {
+  final GestureArena arena = _arenas[pointer];
+  
+  if (arena.members.length == 1) {
+    // Chỉ còn 1 → auto-win (uncontested)
+    arena.members.first.acceptGesture(pointer);
+  } else if (arena.eagerWinner != null) {
+    // Ai đó đã claim victory → win
+    _resolveByDefault(pointer, arena);
+  }
+  // Nếu không → arena closed, không ai win
+}
+```
+
+**Concrete example — TapGestureRecognizer:**
+```
+PointerDown: enter arena
+PointerMove > threshold (18px): TapGestureRecognizer.rejectPointer() — forfeit (di chuyển quá nhiều)
+PointerUp < threshold + duration < 300ms: TapGestureRecognizer.resolvePointer() — claim victory
+```
+
+---
+
+#### Q5 [Middle] — "`HitTestBehavior.opaque` vs `.translucent` vs `.deferToChild`?"
+
+**Trả lời chuẩn:**
+
+| Behavior | Hit test | Events |
+|---|---|---|
+| `opaque` | Luôn true (block widgets phía sau) | Nhận events, widget phía sau không nhận |
+| `translucent` | True AND forward (pass-through) | Nhận events, widget phía sau CŨNG nhận |
+| `deferToChild` | True chỉ nếu child nhận | Chỉ nhận nếu có child tại vị trí tap |
+
+```dart
+// opaque — block events đến widget phía sau (Stack)
+GestureDetector(
+  behavior: HitTestBehavior.opaque,
+  onTap: () {},
+  child: Container(width: 100, height: 100, color: Colors.transparent),
+  // Tap vào vùng transparent → widget NHẬN event, Widgets phía sau KHÔNG nhận
+)
+
+// translucent — event đến cả hai
+GestureDetector(
+  behavior: HitTestBehavior.translucent,
+  onTap: () print('detector'),
+  child: Container(color: Colors.transparent),
+  // Tap → detector nhận + widget phía dưới trong stack cũng nhận
+)
+
+// deferToChild (default) — chỉ nhận nếu child nhận
+GestureDetector(
+  // behavior: HitTestBehavior.deferToChild (default)
+  onTap: () {},
+  child: Container(color: Colors.blue), // có màu → opaque → nhận
+)
+GestureDetector(
+  // behavior: HitTestBehavior.deferToChild (default)
+  onTap: () {},
+  child: Container(color: Colors.transparent), // transparent → không nhận → tap miss!
+)
+```
+
+---
+
+#### Q6 [Middle] — "`Listener` vs `GestureDetector` — khi nào cần dùng low-level `Listener`?"
+
+**Trả lời chuẩn:**
+
+| | `Listener` | `GestureDetector` |
+|---|---|---|
+| **Level** | Low-level — raw pointer events | High-level — recognized gestures |
+| **Events** | PointerDown, PointerMove, PointerUp, PointerHover | Tap, DoubleTap, LongPress, Pan, Scale |
+| **Gesture Arena** | Không tham gia | Tham gia (compete với others) |
+| **Use case** | Custom gesture recognizer, debugging | Thông thường |
+
+```dart
+// Listener — không compete với ScrollView, không block scroll
+Listener(
+  onPointerDown: (event) {
+    print('Pointer down at: ${event.localPosition}');
+    // Lấy hover position trên desktop
+  },
+  onPointerHover: (event) {
+    // Hover tracking (không có GestureDetector equivalent)
+    setState(() => _hoverPosition = event.localPosition);
+  },
+  child: ListView.builder(...), // scroll không bị ảnh hưởng
+)
+
+// Khi nào dùng Listener:
+// 1. Hover effect trên desktop/web
+// 2. Custom gesture recognition (không dùng built-in recognizers)
+// 3. Debugging — xem raw pointer events
+// 4. Cần nhận events mà không compete với gesture arena
+```
+
+---
+
+#### Q7 [Trace Code] — "Nested GestureDetector (inner + outer `onTap`): cái nào được gọi?"
+
+```dart
+GestureDetector(
+  onTap: () => print('Outer tapped'),
+  child: Container(
+    width: 200,
+    height: 200,
+    color: Colors.blue,
+    child: Center(
+      child: GestureDetector(
+        onTap: () => print('Inner tapped'),
+        child: Container(
+          width: 100,
+          height: 100,
+          color: Colors.red,
+        ),
+      ),
+    ),
+  ),
+)
+
+// Hỏi:
+// Case A: Tap vào vùng RED (inner container)
+// Case B: Tap vào vùng BLUE (outer container, không phải inner)
+// Case C: Làm thế nào để CẢ HAI onTap được gọi khi tap inner?
+```
+
+**Case A — Tap vào RED:**
+```
+Output: "Inner tapped"
+```
+Inner GestureDetector win trong arena → outer GestureDetector không nhận event. **Chỉ "Inner tapped"** được in.
+
+**Lý do:** Khi hit test, Flutter tìm GestureDetector từ leaf lên root. Inner GestureDetector nằm ở leaf — recognizer của nó được thêm vào arena. Outer cũng thêm. Khi cả hai TapGestureRecognizer compete — **inner win** vì được added trước và more specific.
+
+**Case B — Tap vào BLUE:**
+```
+Output: "Outer tapped"
+```
+Tap ngoài inner container → Inner GestureDetector không trong hit test path → chỉ Outer trong arena → Outer win.
+
+**Case C — Cả hai nhận event:**
+```dart
+// Không có built-in support cho "event propagation" trong Flutter
+// Workaround 1: AbsorbPointer + manual logic
+// Workaround 2: dùng Listener (không compete)
+Stack(children: [
+  GestureDetector(
+    behavior: HitTestBehavior.translucent, // pass-through
+    onTap: () => print('Outer tapped'),
+    child: Container(width: 200, height: 200, color: Colors.blue),
+  ),
+  Center(
+    child: GestureDetector(
+      onTap: () => print('Inner tapped'),
+      child: Container(width: 100, height: 100, color: Colors.red),
+    ),
+  ),
+])
+// → Tap red: "Inner tapped" + "Outer tapped" (translucent pass-through)
+```

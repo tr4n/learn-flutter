@@ -550,16 +550,209 @@ Bạn đang xây dựng một Flutter app có nhiều model: `User`, `Product`, 
 - `toJson` và `toString` có thể vào mixin vì là instance method
 - Extension method nhận `Map<String, dynamic>` và dùng `JsonEncoder.withIndent('  ')`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `extends`, `implements`, `with` trong Dart?"**
-   - `extends`: kế thừa cả implementation, chỉ 1 class
-   - `implements`: cam kết API contract, có thể nhiều interface, phải implement tất cả
-   - `with`: trộn hành vi từ mixin, không tạo quan hệ IS-A
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao Dart không có keyword `interface`?"**
-   - Mọi class đều implicitly là interface. `abstract interface class` (Dart 3) là cách tường minh.
+---
 
-3. **"Khi nào mixin tốt hơn abstract class?"**
-   - Khi hành vi muốn thêm vào không liên quan đến nhau (cross-cutting concerns: logging, caching, validation)
-   - Khi cần "trộn" nhiều hành vi vào một class mà Java/Kotlin buộc phải dùng nhiều abstract class
+#### Q1 [Junior] — "Sự khác biệt giữa `extends`, `implements`, `with` trong Dart?"
+
+**Trả lời chuẩn:**
+
+Ba keyword thể hiện ba quan hệ hoàn toàn khác nhau:
+
+| Keyword | Quan hệ | Nhận implementation? | Số lượng |
+|---|---|---|---|
+| `extends` | IS-A | Có — kế thừa toàn bộ | Chỉ 1 |
+| `implements` | CAN-DO | Không — phải tự override lại | Nhiều |
+| `with` | HAS-ABILITY | Có — từ mixin | Nhiều |
+
+```dart
+// Thứ tự cú pháp bắt buộc: extends → with → implements
+class MyPage extends StatefulWidget    // IS-A: kế thừa StatefulWidget
+    with RouteAware                    // HAS-ABILITY: thêm khả năng track route
+    implements Serializable {          // CAN-DO: cam kết có toJson()
+}
+```
+
+- `extends` nhận toàn bộ implementation, chỉ được dùng với 1 class
+- `implements` yêu cầu tự implement lại *toàn bộ* — kể cả getter của field
+- `with` inject mixin vào chuỗi kế thừa, tạo synthetic class chain (xem Q6 bên dưới)
+
+---
+
+#### Q2 [Junior] — "Tại sao Dart không có keyword `interface` như Java?"
+
+**Trả lời chuẩn:**
+
+Trong Dart, **mọi class đều implicitly là một interface** — bất kỳ class nào cũng có thể bị `implements` mà không cần khai báo gì thêm. Khi class `C` được `implements`, Dart compiler tự động chiết xuất "implicit interface":
+- Mỗi field → abstract getter (và setter nếu mutable)
+- Mỗi method → abstract method signature
+- Constructor → **không** nằm trong interface
+
+```dart
+class Logger {
+  void log(String msg) => print(msg);  // concrete method
+}
+class SilentLogger implements Logger { // implements được, không cần Logger khai báo interface
+  @override void log(String msg) {}    // buộc phải implement lại
+}
+```
+
+Dart 3 thêm `abstract interface class` như cách tường minh để signal ý định: "class này chỉ dùng làm interface, không được extend" — ngăn vô tình `extends` thay vì `implements`.
+
+---
+
+#### Q3 [Middle] — "Khi nào chọn mixin thay vì abstract class? Khi nào nên chọn ngược lại?"
+
+**Trả lời chuẩn:**
+
+**Chọn Mixin khi:**
+- Hành vi là **cross-cutting concerns** — không liên quan tới domain chính (logging, caching, validation, animation ticker)
+- Cần **trộn nhiều hành vi độc lập** vào một class — giải quyết multiple inheritance an toàn mà Java buộc phải dùng interface + delegation
+- Hành vi **không cần constructor** hay initialization phức tạp
+
+**Chọn Abstract Class khi:**
+- Subclass **chia sẻ implementation chung** (template method pattern — logic chung nằm trong base)
+- Cần **constructor** để khởi tạo state bắt buộc
+- Có quan hệ **IS-A rõ ràng** trong domain model
+
+```dart
+// ✅ Mixin: cross-cutting, không IS-A — LoginState và RegisterState đều dùng
+mixin ValidationMixin {
+  String? validateEmail(String? v) { ... }
+  String? validatePassword(String? v) { ... }
+}
+
+// ✅ Abstract class: shared logic + IS-A rõ ràng
+abstract class Repository<T> {
+  // Concrete method: shared logic — subclass không cần viết lại
+  Future<bool> exists(String id) async => await findById(id) != null;
+  // Abstract method: mỗi repo tự implement theo storage của mình
+  Future<T?> findById(String id);
+}
+```
+
+---
+
+#### Q4 [Senior] — "Extension method có hỗ trợ dynamic dispatch không? Chuyện gì xảy ra khi gọi extension qua biến kiểu `dynamic`?"
+
+**Trả lời chuẩn:**
+
+**Hoàn toàn không.** Extension method là **static function** — được resolve tại compile time dựa trên *static type* của receiver, không phải runtime type. Đây là *static dispatch*, đối lập với *dynamic dispatch* (virtual method lookup qua vtable).
+
+Dart Kernel IR thực sự tạo ra:
+```
+// extension StringX on String { bool get isEmail => contains('@'); }
+static bool StringX|get#isEmail(String $this) => $this.contains('@');
+
+// Call site bị rewrite:
+'hello@test.com'.isEmail  →  StringX|get#isEmail('hello@test.com')
+```
+
+**Hậu quả với kiểu `dynamic`:**
+```dart
+String typed = 'hello@test.com';
+typed.isEmail;           // ✅ Compiler biết static type → bind static function
+
+dynamic untyped = 'hello@test.com';
+untyped.isEmail;         // 💥 NoSuchMethodError tại RUNTIME
+// Lý do: static type là dynamic → compiler không resolve được static function
+// → runtime forward call đến String object → String không có 'isEmail' → crash
+```
+
+**So sánh Kotlin:** `fun String.isEmail() = contains('@')` → `public static boolean isEmail(String $receiver)` trong JVM bytecode. Cùng hành vi: extension là static dispatch, không work với `Any?`.
+
+**Hai hệ quả khác:** Extension không thể override instance method (static function không vào vtable). Nếu `String` sau này thêm `isEmail()`, instance method sẽ shadow extension.
+
+---
+
+#### Q5 [Middle] — "`abstract interface class Shape { String name; }` — code này có lỗi không? Tại sao?"
+
+**Trả lời chuẩn:**
+
+**Có lỗi compile.** `abstract interface class` không được có instance field — chỉ được có abstract getter/setter. Interface là *contract* (mô tả khả năng), không phải *storage* (lưu state): interface không allocate memory, không có constructor, không giữ giá trị.
+
+```dart
+abstract interface class Shape {
+  String name;           // ❌ Compile error: interface không có instance variable
+  String get name;       // ✅ Abstract getter — đây là contract đúng
+  double get area;       // ✅ Abstract getter
+}
+```
+
+Implementer có 2 cách fulfill getter contract:
+
+```dart
+class Circle implements Shape {
+  // final field → compiler AUTO-TẠO getter ngầm: String get name => _name;
+  @override final String name;    // ✅ Fulfills getter contract, không có setter
+
+  // Custom computed getter
+  @override double get area => 3.14 * radius * radius;
+
+  final double radius;
+  const Circle(this.radius, {this.name = 'Circle'});
+}
+```
+
+**So sánh Kotlin:** `interface Shape { val name: String }` → abstract method `String getName()` trong JVM bytecode. Interface không có field, chỉ có abstract accessor — cùng nguyên tắc.
+
+---
+
+#### Q6 [Senior] — "`class A extends B with M1, M2` — Dart Kernel IR tạo ra gì? Tại sao M2 được ưu tiên hơn M1?"
+
+**Trả lời chuẩn:**
+
+Dart compiler không "copy" code mixin vào class — thay vào đó tạo **chuỗi class trung gian ẩn** (mixin application) để tuyến tính hóa thứ tự kế thừa:
+
+```
+// Dart Kernel IR — compiler sinh ra:
+abstract class _A&B&M1 = B with M1;             // synthetic class #1
+abstract class _A&B&M1&M2 = _A&B&M1 with M2;   // synthetic class #2
+class A extends _A&B&M1&M2 {}                   // A chỉ extend class cuối chuỗi
+```
+
+**Lookup chain thực tế khi gọi method:**
+```
+A → _A&B&M1&M2 → _A&B&M1 → B → Object
+        M2 inject   M1 inject
+```
+
+M2 được kiểm tra trước vì nó **gần nhất** trong chuỗi kế thừa tuyến tính — "mixin cuối trong `with` list → được ưu tiên cao nhất." Đây là nguyên tắc **C3 Linearization**: mixin được inject ngược thứ tự khai báo.
+
+Tên synthetic class này xuất hiện trong Dart error messages — dấu hiệu để nhận biết:
+```
+type '_MyWidget&StatefulWidget&RouteAware' is not a subtype of type 'RouteAware'
+```
+
+---
+
+#### Q7 [Trace Code] — "Output của đoạn code sau?"
+
+```dart
+mixin A {
+  String greet() => 'from A';
+}
+
+mixin B {
+  String greet() => 'from B';
+}
+
+class C with A, B {
+  void run() => print(greet());
+}
+
+C().run();
+```
+
+**Đáp án: `from B`**
+
+**Giải thích từng bước:**
+1. `class C with A, B` → Dart Kernel tạo: `_C&Object&A` (inject A) rồi `_C&Object&A&B` (inject B lên trên)
+2. Lookup chain khi gọi `greet()`: `C → _C&Object&A&B → _C&Object&A → Object`
+3. Kiểm tra `_C&Object&A&B` trước — tìm thấy `B.greet()` → dừng tìm kiếm, dùng `B.greet()`
+4. Kết quả: `from B`
+
+**Muốn A thắng:** Viết `with B, A` — lúc đó A là mixin cuối, được inject gần nhất trong chain → A.greet() thắng.

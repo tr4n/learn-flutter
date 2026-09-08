@@ -554,16 +554,269 @@ class ApiClient {
 - `FormatException` → `ApiError.parseError`
 - Status code >= 400 → `ApiError.serverError(statusCode)`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Khi nào nên dùng Exception, khi nào dùng Result type?"**
-   - Exception: lỗi thực sự không mong đợi, programming errors (assert, ArgumentError)
-   - Result: lỗi có thể xảy ra trong flow bình thường (network fail, validation fail)
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `Error` và `Exception` trong Dart?"**
-   - `Error`: programming bugs, không nên catch (AssertionError, TypeError)
-   - `Exception`: runtime conditions có thể recover (IOException, FormatException)
+---
 
-3. **"Tại sao `rethrow` quan trọng hơn `throw e`?"**
-   - `rethrow` preserve stack trace gốc → dễ debug hơn
-   - `throw e` tạo stack trace mới từ điểm throw → mất context gốc
+#### Q1 [Junior] — "Khi nào dùng Exception (throw/catch), khi nào dùng Result type? Tiêu chí phân biệt?"
+
+**Trả lời chuẩn:**
+
+**Dùng Exception (throw/catch) khi:**
+- Lỗi thực sự **không mong đợi** — điều kiện ngoài tầm kiểm soát của caller
+- **Programming errors** — vi phạm contract (assert, ArgumentError)
+- Lỗi ở tầng rất thấp mà caller không thể reasonable handle
+
+**Dùng Result type khi:**
+- Lỗi **có thể xảy ra trong flow bình thường** — caller phải handle như một trường hợp bình thường
+- **Network failure, validation fail, not found** — những thứ caller có thể và nên react
+- Muốn signature của hàm **tường minh về khả năng lỗi** — caller nhìn vào `Future<Result<User, AppError>>` biết ngay phải handle error
+
+```dart
+// Exception: caller không mong đợi, khó recover
+void connect(String url) {
+  if (url.isEmpty) throw ArgumentError('URL cannot be empty'); // programming error
+}
+
+// Result: caller biết mạng có thể fail, phải handle
+Future<Result<User, NetworkError>> fetchUser(String id) async {
+  try { ... }
+  on SocketException { return const Err(NetworkError.noConnection); }
+}
+```
+
+**Rule of thumb:** Nếu caller hợp lý có thể *hỏi "nếu thất bại thì sao?"* → dùng Result. Nếu thất bại là bug hoặc catastrophic → dùng Exception.
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `Error` và `Exception` trong Dart? Tại sao không nên catch `Error`?"
+
+**Trả lời chuẩn:**
+
+Dart phân chia rõ ràng thành 2 class gốc:
+
+**`Error`** — programming bugs, **không nên catch ở application level:**
+- `AssertionError` — `assert()` fail
+- `TypeError` — type mismatch (wrong type passed)
+- `StateError` — gọi method trong state không hợp lệ
+- `RangeError` — index out of bounds
+- `LateInitializationError` — `late` field chưa được gán
+
+Những lỗi này chỉ xảy ra khi code sai — catch chúng sẽ che giấu bug thay vì fix. Dart convention: để chúng crash, đọc stack trace, fix code.
+
+**`Exception`** — runtime conditions có thể recover, **nên catch và handle:**
+- `IOException` / `SocketException` — network issues
+- `FormatException` — JSON/format parse fail
+- `TimeoutException` — request quá lâu
+- Custom app exceptions — domain-specific errors
+
+```dart
+// ✅ Đúng: catch Exception, không catch Error
+try {
+  final data = await fetchData();
+} on NetworkException catch (e) { // ← Exception (recoverable)
+  showRetryDialog();
+} catch (e, stackTrace) { // ← unknown — log, report
+  FirebaseCrashlytics.instance.recordError(e, stackTrace);
+}
+// Không catch TypeError, AssertionError, v.v. — để crash để fix bug
+```
+
+---
+
+#### Q3 [Middle] — "`rethrow` vs `throw e` vs `throw NewException(e)` — khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+| | `rethrow` | `throw e` | `throw NewException(e)` |
+|---|---|---|---|
+| Stack trace | **Giữ nguyên** gốc | **Mất** — tạo mới từ đây | Mới, nhưng có thể set `cause` |
+| Use case | Log rồi propagate | **Tránh dùng** | Wrap exception thành type mới |
+
+```dart
+// ✅ rethrow: log rồi để exception tiếp tục với stack trace gốc
+} catch (e, stackTrace) {
+  _logger.error('Unexpected error', e, stackTrace);
+  rethrow; // Stack trace trỏ về nơi exception thực sự xảy ra
+
+// ❌ throw e: mất stack trace gốc — debug khó hơn
+} catch (e) {
+  throw e; // Stack trace bắt đầu từ ĐÂY — mất context gốc
+
+// ✅ throw NewException(e): wrap sang type khác khi cần
+} on SocketException catch (e) {
+  throw NetworkException(
+    endpoint: url,
+    cause: e,           // giữ original exception làm cause
+  );
+}
+```
+
+**Minh họa sự khác biệt trong error report:**
+```
+// rethrow → stacktrace đầy đủ:
+FormatException: ...
+  at jsonDecode (convert.dart:301)       ← nơi thực sự xảy ra
+  at UserRepository.findById (repo.dart:38)
+  at UserViewModel.loadUser (vm.dart:25)
+
+// throw e → stacktrace bị cắt:
+FormatException: ...
+  at UserRepository.findById (repo.dart:45)  ← chỉ thấy catch block, mất gốc
+```
+
+---
+
+#### Q4 [Senior] — "Tại sao Dart không có checked exceptions như Java? Kotlin và C# cũng bỏ — lý do chung là gì?"
+
+**Trả lời chuẩn:**
+
+**Checked exceptions trong Java** buộc developer khai báo `throws IOException` trong signature và caller phải `try/catch` hoặc khai báo `throws` tiếp. Nghe có vẻ tốt nhưng thực tế gây nhiều vấn đề:
+
+**1. API fragility:** Thêm exception mới vào deep layer → phải thay đổi signature *tất cả* layers phía trên → breaking change lan rộng:
+```java
+// Java: thêm NetworkException vào Repository → sửa tất cả layers
+interface UserRepository { User findById(String id) throws IOException; }
+// → Service phải thêm throws IOException
+// → Controller phải thêm throws IOException hoặc catch
+// → N layers phải sửa
+```
+
+**2. Verbose boilerplate:** Developer thường viết catch-all để "cho xong" — phá vỡ toàn bộ ý nghĩa:
+```java
+try {
+  result = riskyOperation();
+} catch (Exception e) { } // silence mọi thứ — tệ hơn không có gì
+```
+
+**3. Dễ bypass:** Wrap trong `RuntimeException` để thoát checked mechanism — anti-pattern phổ biến trong Java code.
+
+**Giải pháp Dart/Kotlin/C#:** Unchecked exceptions + **typed exception hierarchy** (developer tự tổ chức) + **Result type** (explicit error handling trong signature). Đây là explicit-by-design, không phải laissez-faire.
+
+---
+
+#### Q5 [Senior] — "Stack unwinding hoạt động thế nào? `finally` block chạy khi nào, theo thứ tự nào?"
+
+**Trả lời chuẩn:**
+
+Khi `throw` xảy ra, Dart VM thực hiện **stack unwinding**: pop từng stack frame, tìm `catch` handler phù hợp:
+
+```
+Call Stack tại thời điểm throw FormatException:
+
+Frame 4: jsonDecode()         ← throw FormatException tại đây
+Frame 3: UserRepository.findById()
+Frame 2: UserViewModel.loadUser() ← catch (on FormatException) → MATCH!
+Frame 1: Widget.onTap()
+Frame 0: Flutter Framework
+
+Stack Unwinding:
+  Pop frame 4 (jsonDecode)   → không có catch → tiếp tục unwind
+  Pop frame 3 (findById)     → có try/catch nhưng không match FormatException → unwind
+  Pop frame 2 (loadUser)     → có catch (FormatException) → MATCH → dừng unwind, execute catch
+```
+
+**`finally` block chạy theo quy tắc:**
+1. Không có exception → sau `try` block
+2. Exception được catch → sau `catch` block *trước khi* exit try/catch
+3. Exception **không được catch** → `finally` chạy rồi tiếp tục unwind lên frame trên
+
+```dart
+void demo() {
+  try {
+    throw Exception('error');
+  } catch (e) {
+    print('catch');
+    throw e;          // re-throw
+  } finally {
+    print('finally'); // chạy TRƯỚC KHI re-throw propagate
+  }
+}
+// Output: catch, finally → rồi exception propagate lên caller
+```
+
+**`finally` luôn là nơi cleanup an toàn:** close file, cancel timer, release lock — đảm bảo chạy bất kể exception hay không.
+
+---
+
+#### Q6 [Middle] — "`on SocketException catch (e)` — đây là compile-time hay runtime type check? Khác `is` ở điểm nào?"
+
+**Trả lời chuẩn:**
+
+`on X catch (e)` là **runtime type check** — Dart VM kiểm tra type của exception object tại runtime để tìm handler phù hợp. Đây không phải compile-time proof.
+
+```dart
+try {
+  riskyOperation();
+} on SocketException catch (e) {     // runtime: e.runtimeType is SocketException?
+  handleNetworkError(e);
+} on FormatException catch (e) {     // runtime: e.runtimeType is FormatException?
+  handleParseError(e);
+} catch (e) {                        // catch-all: match mọi thứ
+  handleUnknown(e);
+}
+```
+
+**Dart VM check theo thứ tự từ trên xuống** — trường hợp đầu tiên match → execute, bỏ qua các case còn lại.
+
+**Khác `is` operator:**
+- `on X catch (e)`: dùng trong `try/catch`, check type của *exception đang được propagate*
+- `x is T`: dùng ở bất kỳ đâu trong code, check type của bất kỳ object nào
+
+```dart
+// on: trong try/catch, check exception type
+try { ... } on SocketException catch (e) { ... }
+
+// is: bất kỳ đâu, kết hợp với type promotion
+if (error is AppException) {
+  print(error.userMessage); // type promoted to AppException
+}
+```
+
+**Lưu ý quan trọng:** `catch (e)` không có `on` thì catch *mọi thứ* — kể cả `Error`. Tốt nhất là luôn specify type: `on Exception catch (e)` để tránh catch `Error`.
+
+---
+
+#### Q7 [Trace Code] — "Xác định thứ tự output và exception nào propagate ra ngoài:"
+
+```dart
+Future<void> demo() async {
+  try {
+    print('try');
+    throw Exception('original');
+  } catch (e) {
+    print('catch: $e');
+    throw Exception('from catch'); // throw mới trong catch block
+  } finally {
+    print('finally');
+    // Không throw ở đây
+  }
+}
+
+// Caller:
+try {
+  await demo();
+} catch (e) {
+  print('outer catch: $e');
+}
+```
+
+**Đáp án:**
+```
+try
+catch: Exception: original
+finally
+outer catch: Exception: from catch
+```
+
+**Giải thích từng bước:**
+1. `print('try')` → in `try`
+2. `throw Exception('original')` → vào catch block
+3. `print('catch: $e')` → in `catch: Exception: original`
+4. `throw Exception('from catch')` — re-throw mới nhưng `finally` PHẢI chạy trước
+5. `print('finally')` → in `finally`
+6. Exception `'from catch'` tiếp tục propagate → outer caller catch → in `outer catch: Exception: from catch`
+
+**Key insight:** `finally` luôn chạy trước exception propagate ra ngoài — kể cả khi `catch` block throw exception mới. Exception trong `finally` sẽ *override* exception từ `catch` (đây là anti-pattern cần tránh trong `finally` block).

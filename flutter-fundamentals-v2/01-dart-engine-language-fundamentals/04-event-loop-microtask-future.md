@@ -448,15 +448,197 @@ void main() async {
 
 **Đáp án:** `1, 3, 4, 5, 2, 6` — hãy giải thích từng bước trước khi xem.
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Dart có multi-threading không?"**
-   - Không — Dart dùng single-threaded isolate. Multi-core được tận dụng qua nhiều isolates với message passing (không shared memory).
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao `await` không block UI trong Flutter?"**
-   - `await` suspend coroutine hiện tại và trả control về Event Loop. Flutter UI event (render, gesture) vẫn được xử lý trong Event Queue trong thời gian chờ.
+---
 
-3. **"Sự khác biệt giữa `Future.microtask` và `scheduleMicrotask`?"**
-   - Chức năng giống nhau — đều đưa callback vào Microtask Queue
-   - `scheduleMicrotask` là lower-level (`dart:async`)
-   - `Future.microtask` trả về `Future<T>` — dùng khi cần await kết quả
+#### Q1 [Junior] — "Dart có multi-threading không? Isolate là gì?"
+
+**Trả lời chuẩn:**
+
+Dart **không có multi-threading theo nghĩa truyền thống** (shared memory + mutex). Thay vào đó Dart dùng mô hình **Isolate**: mỗi Isolate là một thread riêng biệt với bộ nhớ hoàn toàn độc lập — không thể đọc/ghi biến của Isolate khác.
+
+Giao tiếp giữa Isolates chỉ qua **message passing** (gửi nhận data được serialize), không phải shared reference. Đây là mô hình Actor tương tự Erlang:
+
+```dart
+// Isolate chạy song song nhưng không share bộ nhớ
+final result = await Isolate.run(() {
+  // Đây là code trong Isolate riêng — không access được biến ngoài
+  return _heavyComputation(data);  // data phải được copy, không phải reference
+});
+```
+
+Multi-core CPU được tận dụng bằng cách spawn nhiều Isolate — mỗi Isolate chạy trên một CPU core. Trong Flutter, `compute()` là shorthand tạo Isolate tạm thời cho heavy computation (JSON parsing lớn, image processing).
+
+---
+
+#### Q2 [Junior] — "Tại sao `await` không block UI thread trong Flutter?"
+
+**Trả lời chuẩn:**
+
+`await` **không block thread** — nó *suspend* function hiện tại và **trả control ngay về Event Loop**. Flutter UI events (touch, render frame, gesture) nằm trong Event Queue và tiếp tục được xử lý trong thời gian "chờ" đó.
+
+```
+Timeline khi gọi: final user = await fetchUser();
+│
+├── fetchUser() bắt đầu → HTTP request gửi đi
+├── await → suspend fetchUser, trả control về Event Loop  ← KHÔNG BLOCK
+├── [Event Loop xử lý: gesture tap, frame render, timer...]
+├── HTTP response đến → callback được đưa vào Microtask Queue
+├── Event Loop lấy callback → resume fetchUser() với kết quả
+└── Code sau await tiếp tục
+```
+
+Nếu `await` block thread, mọi UI event trong khoảng thời gian network request (100ms-2s) sẽ bị đóng băng — app freeze. Đây là lý do UI của Flutter luôn mượt kể cả khi có nhiều async operation.
+
+---
+
+#### Q3 [Middle] — "Sự khác biệt giữa `Future.microtask()` và `scheduleMicrotask()`? Khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+Hai cách này đều đưa callback vào **Microtask Queue** (chạy trước Event Queue), nhưng khác nhau ở return type:
+
+| | `scheduleMicrotask()` | `Future.microtask()` |
+|---|---|---|
+| Return | `void` | `Future<T>` |
+| Dùng khi | Fire-and-forget, không cần kết quả | Cần `await` kết quả |
+| Level | Lower-level (`dart:async`) | Higher-level, wrap kết quả |
+
+```dart
+// scheduleMicrotask: fire-and-forget
+scheduleMicrotask(() => cleanupCache()); // không cần kết quả
+
+// Future.microtask: cần await kết quả
+final result = await Future.microtask(() => expensiveSync()); // cần giá trị trả về
+```
+
+**Quan trọng:** Microtask Queue được drain **hoàn toàn** trước khi Event Loop lấy event tiếp theo. Nếu microtask tạo thêm microtask (vòng lặp đệ quy), Event Loop sẽ bị "starvation" — không xử lý được gesture/render. Đây là lỗi hiệu năng nghiêm trọng cần tránh.
+
+---
+
+#### Q4 [Senior] — "`async` function hoạt động thế nào ở tầng Dart Kernel? Tại sao `await` không block?"
+
+**Trả lời chuẩn:**
+
+Dart compiler biến đổi mỗi `async` function thành một **state machine** với numbered suspension points. Đây là cơ chế cốt lõi khiến `await` không block:
+
+```dart
+// Bạn viết:
+Future<String> processUser() async {
+  final user = await fetchUser();       // suspension point 0→1
+  final token = await fetchToken(user); // suspension point 1→2
+  return 'Done: $token';
+}
+
+// Dart Kernel IR sinh ra (conceptually):
+Future<String> processUser() {
+  int _state = 0;
+  dynamic _savedUser;
+  final _completer = Completer<String>();
+
+  void _resume(dynamic _value, Object? _error) {
+    if (_error != null) { _completer.completeError(_error); return; }
+    switch (_state) {
+      case 0:
+        _state = 1;
+        fetchUser().then((v) => _resume(v, null), onError: (e) => _resume(null, e));
+        return;   // ← RETURN VỀ CALLER NGAY — không block gì cả
+      case 1:
+        _savedUser = _value;
+        _state = 2;
+        fetchToken(_savedUser).then((v) => _resume(v, null), onError: (e) => _resume(null, e));
+        return;
+      case 2:
+        _completer.complete('Done: ${_value}');
+    }
+  }
+
+  _resume(null, null); // kickstart
+  return _completer.future;
+}
+```
+
+Mỗi `await` = 1 `return` + 1 `.then()` callback. Thread không chờ — nó hoàn toàn free để xử lý việc khác.
+
+**So sánh:** Kotlin coroutines → state machine với `label` field + `Continuation`. C# → `IAsyncStateMachine.MoveNext()`. Cùng nguyên tắc, khác cú pháp.
+
+---
+
+#### Q5 [Middle] — "Isolate khác Thread ở điểm nào? Tại sao Dart chọn Isolate thay vì Thread?"
+
+**Trả lời chuẩn:**
+
+| | Thread | Isolate |
+|---|---|---|
+| Bộ nhớ | Shared — mọi thread cùng heap | Isolated — mỗi isolate có heap riêng |
+| Giao tiếp | Direct access + mutex/lock | Message passing (data được copy/serialize) |
+| Race condition | Có thể xảy ra | Không thể — không share state |
+| Deadlock | Có thể xảy ra | Không thể — không có lock |
+| Overhead | Lightweight | Nặng hơn (tạo heap riêng) |
+
+**Dart chọn Isolate vì:**
+1. **An toàn tuyệt đối:** Không shared state → không race condition, không deadlock — class of bugs hoàn toàn bị loại bỏ
+2. **Predictable:** Developer không phải nghĩ về thread safety, mutex, volatile
+3. **Phù hợp UI:** Flutter chỉ cần 1 Isolate cho UI + spawn thêm cho heavy work — trường hợp sử dụng đơn giản và rõ ràng
+
+**Hạn chế:** Giao tiếp qua message passing tốn chi phí serialize/copy data lớn. Không phù hợp cho concurrent access vào shared data structure (dùng `dart:ffi` nếu thực sự cần).
+
+---
+
+#### Q6 [Trace Code] — "Output của đoạn code sau theo thứ tự nào?"
+
+```dart
+import 'dart:async';
+
+void main() async {
+  print('1');
+  Future(() => print('2'));          // đưa vào Event Queue
+  scheduleMicrotask(() => print('3')); // đưa vào Microtask Queue
+  await Future.microtask(() => print('4')); // Microtask Queue + await suspend
+  print('5');
+}
+```
+
+**Đáp án: `1, 3, 4, 5, 2`**
+
+**Giải thích từng bước:**
+1. `print('1')` — synchronous, chạy ngay → **in `1`**
+2. `Future(() => print('2'))` — đưa callback vào **Event Queue** (không chạy ngay)
+3. `scheduleMicrotask(() => print('3'))` — đưa vào **Microtask Queue**
+4. `await Future.microtask(() => print('4'))` — đưa `print('4')` vào Microtask Queue, `await` suspend `main()`
+5. Event Loop drain Microtask Queue: `print('3')` → **in `3`**, rồi `print('4')` → **in `4`**
+6. `await` hoàn tất, `main()` resume → `print('5')` → **in `5`**
+7. `main()` kết thúc, Event Loop lấy từ Event Queue: `print('2')` → **in `2`**
+
+**Quy tắc vàng:** Microtask Queue được drain *hoàn toàn* trước khi Event Loop nhảy sang Event Queue.
+
+---
+
+#### Q7 [Senior] — "`addPostFrameCallback` vs `Future.delayed(Duration.zero)` — khác nhau thế nào? Cái nào đảm bảo widget đã build xong?"
+
+**Trả lời chuẩn:**
+
+**`addPostFrameCallback`** — đảm bảo chạy *sau khi frame render đầu tiên hoàn tất*:
+```dart
+WidgetsBinding.instance.addPostFrameCallback((_) {
+  // Chắc chắn build() đã chạy xong, RenderObject đã layout
+  _scrollController.animateTo(100, ...);
+});
+```
+Callback này được Flutter engine gọi sau mỗi vsync frame — sau khi toàn bộ widget tree đã build, layout, và paint xong.
+
+**`Future.delayed(Duration.zero)`** — chỉ đưa callback vào **Event Queue**:
+```dart
+Future.delayed(Duration.zero, () {
+  // Vào Event Queue — KHÔNG đảm bảo frame đã render!
+  // Có thể chạy trước khi build() hoàn tất trong một số edge case
+  _scrollController.animateTo(100, ...); // ❌ Không an toàn
+});
+```
+
+`Duration.zero` delay chỉ có nghĩa là "sau khi Microtask Queue rỗng, lấy từ Event Queue" — không liên quan đến Flutter rendering pipeline.
+
+**Kết luận:** Dùng `addPostFrameCallback` khi cần interact với widget sau khi layout hoàn tất. Dùng `Future.delayed(zero)` chỉ khi muốn defer một task không liên quan đến UI rendering.

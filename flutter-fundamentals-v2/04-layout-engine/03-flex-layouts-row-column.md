@@ -516,16 +516,242 @@ Row(children: [
 - Amenities icons với gap đều nhau
 - Price bên trái, button bên phải — dùng Spacer
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `Expanded` và `Flexible`?"**
-   - `Expanded` = `Flexible(fit: FlexFit.tight)` — child bị ép fill flex share
-   - `Flexible(fit: FlexFit.loose)` — child có thể nhỏ hơn flex share
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"MainAxisSize.min vs MainAxisSize.max?"**
-   - `max` (default): Column/Row fill toàn bộ available space
-   - `min`: shrink to fit children — không expand thêm
+---
 
-3. **"Khi nào dùng `Spacer` thay vì `SizedBox`?"**
-   - `Spacer`: khi cần fill remaining space (responsive)
-   - `SizedBox`: khi cần khoảng cách cố định
+#### Q1 [Junior] — "Sự khác biệt giữa `Expanded` và `Flexible`?"
+
+**Trả lời chuẩn:**
+
+`Expanded` là `Flexible(fit: FlexFit.tight)` — chúng chỉ khác nhau về `FlexFit`:
+
+| | `Expanded` | `Flexible(fit: FlexFit.loose)` |
+|---|---|---|
+| **Child constraint** | Tight (buộc fill) | Loose (tối đa là flex share) |
+| **Nếu child nhỏ hơn share** | Vẫn bị stretch đến flex share | Chỉ dùng kích thước thực của child |
+| **Ví dụ điển hình** | Container, Column fill space | Text, Icon — không muốn stretch |
+
+```dart
+Row(children: [
+  Flexible(child: Text('Short')),         // Text: natural width, không stretch
+  Expanded(child: Container(color: red)), // Container: fill remaining space
+])
+
+// vs hai Expanded:
+Row(children: [
+  Expanded(child: Text('Short')),         // Text bị stretch đến 1/2 Row width
+  Expanded(child: Container(color: red)),
+])
+```
+
+---
+
+#### Q2 [Junior] — "`MainAxisSize.min` vs `MainAxisSize.max` — ảnh hưởng gì đến Column/Row?"
+
+**Trả lời chuẩn:**
+
+| | `MainAxisSize.max` (default) | `MainAxisSize.min` |
+|---|---|---|
+| **Size trả về parent** | Fill toàn bộ main axis available | Shrink to fit children |
+| **Available space** | Parent cho bao nhiêu, dùng bấy nhiêu | Chỉ dùng đúng size cần |
+| **Ảnh hưởng Spacer** | Spacer hoạt động (có space để fill) | Spacer = size 0 (không có extra space) |
+
+```dart
+// MainAxisSize.max (default)
+Column(
+  mainAxisSize: MainAxisSize.max, // fill toàn bộ height từ parent
+  children: [Text('A'), Text('B')],
+) // height = parent available height
+
+// MainAxisSize.min
+Column(
+  mainAxisSize: MainAxisSize.min, // chỉ cao bằng children
+  children: [Text('A'), Text('B')],
+) // height = height(A) + height(B)
+// ← hữu ích cho Card/Dialog chỉ cao bằng nội dung
+```
+
+---
+
+#### Q3 [Middle] — "Khi nào dùng `Spacer` thay vì `SizedBox`?"
+
+**Trả lời chuẩn:**
+
+| | `Spacer` | `SizedBox(width/height: x)` |
+|---|---|---|
+| **Loại space** | Flexible — fill remaining space | Fixed — luôn cùng size |
+| **Responsive** | Tự điều chỉnh theo screen | Không |
+| **Tương đương** | `Expanded(child: SizedBox.shrink())` | Cố định |
+
+```dart
+// Spacer — responsive layout
+Row(children: [
+  const Text('Left'),
+  const Spacer(),              // fill toàn bộ remaining space
+  const Text('Right'),
+])
+// → Left ... Right (left căn trái, right căn phải, space tự điều chỉnh)
+
+// SizedBox — fixed spacing
+Row(children: [
+  const Text('Left'),
+  const SizedBox(width: 16),  // luôn 16px, không responsive
+  const Text('Right'),
+])
+
+// Spacer với flex
+Row(children: [
+  const Text('A'),
+  const Spacer(flex: 2),      // 2/3 remaining space
+  const Text('B'),
+  const Spacer(flex: 1),      // 1/3 remaining space
+  const Text('C'),
+])
+```
+
+---
+
+#### Q4 [Senior] — "Flex layout algorithm 2 passes: giải thích chi tiết `RenderFlex.performLayout()`"
+
+**Trả lời chuẩn:**
+
+`RenderFlex.performLayout()` có **2 passes** rõ ràng:
+
+**Pass 1 — Inflexible children (không có flex/không có `Expanded`/`Flexible`):**
+```
+Loop inflexible children:
+  child.layout(innerConstraints)
+  allocatedSize += child.mainAxisExtent
+  crossSize = max(crossSize, child.crossAxisExtent)
+
+freeSpace = mainAxisAvailable - allocatedSize
+totalFlex = sum(child.flex for flexible children)
+```
+
+**Pass 2 — Flexible children (có `Expanded` hoặc `Flexible`):**
+```
+remainingSpace = freeSpace
+Loop flexible children:
+  flexShare = freeSpace * (child.flex / totalFlex)
+  if FlexFit.tight:
+    child.layout(tightConstraint(flexShare))
+  else: // FlexFit.loose
+    child.layout(looseConstraint(max=flexShare))
+  allocatedFlexSpace += child.mainAxisExtent
+```
+
+**Sau 2 passes:** Xác định offset cho mỗi child dựa trên `mainAxisAlignment` và `crossAxisAlignment`.
+
+**Vì sao 2 passes?** Pass 1 cần biết tổng space của inflexible children trước, mới tính được `freeSpace` cho flexible children trong pass 2.
+
+---
+
+#### Q5 [Middle] — "`crossAxisAlignment: CrossAxisAlignment.stretch` làm gì với constraints?"
+
+**Trả lời chuẩn:**
+
+`CrossAxisAlignment.stretch` truyền **tight cross-axis constraint** cho children:
+
+```dart
+// Row với CrossAxisAlignment.stretch
+Row(
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+    Container(color: Colors.red, width: 50),   // → height = parent height (tight!)
+    Container(color: Colors.blue, width: 100),  // → height = parent height (tight!)
+    const Text('Hello'),                         // → height = parent height (text bị stretch)
+  ],
+)
+```
+
+**Cơ chế:**
+```
+Row nhận constraint: BoxConstraints(0..390, 200..200) (tight height từ parent)
+Với CrossAxisAlignment.stretch:
+  child.layout(BoxConstraints(0..childWidth, 200..200)) // tight height!
+  → children buộc phải có height = 200px
+
+Với CrossAxisAlignment.start (default):
+  child.layout(BoxConstraints(0..childWidth, 0..200)) // loose height
+  → children tự chọn natural height
+```
+
+**Use case:** Làm tất cả cards trong Row có cùng height (fill Row height) — thay vì dùng `IntrinsicHeight` (2-pass, chậm hơn).
+
+---
+
+#### Q6 [Middle] — "Overflow trong Row/Column: `Overflow.clip` vs `Overflow.visible`?"
+
+**Trả lời chuẩn:**
+
+`Overflow` là deprecated enum trong Flutter mới — thay bằng `ClipBehavior`. Tuy nhiên câu hỏi về clipping vẫn quan trọng:
+
+```dart
+// Mặc định: overflow KHÔNG bị clip — hiện yellow/black stripes trong debug
+Row(children: [
+  Container(width: 400, color: Colors.red), // 400px > screen 390px
+  // → 10px bị overflow, hiện stripe debug, không bị clip
+])
+
+// Clip overflow
+OverflowBox(
+  child: Container(width: 400, color: Colors.red),
+) // clip tại boundary
+
+// Dùng ClipRect để clip:
+ClipRect(
+  child: Row(children: [
+    Container(width: 400, color: Colors.red),
+  ]),
+) // clip overflow tại Row boundary
+```
+
+**Trong production (release mode):** Overflow không hiển thị stripe nhưng nội dung vẫn visible (không bị clip). Để clip overflow, phải dùng `ClipRect`, `ClipRRect`, hoặc `ClipPath` explicitly.
+
+---
+
+#### Q7 [Trace Code] — "Row với 3 `Expanded` (flex 1,2,1): mỗi child nhận bao nhiêu % width?"
+
+```dart
+// Screen width = 390px
+Row(
+  children: [
+    Expanded(
+      flex: 1,
+      child: Container(color: Colors.red, child: const Text('A')),
+    ),
+    Expanded(
+      flex: 2,
+      child: Container(color: Colors.blue, child: const Text('B')),
+    ),
+    Expanded(
+      flex: 1,
+      child: Container(color: Colors.green, child: const Text('C')),
+    ),
+  ],
+)
+```
+
+**Tính toán:**
+
+Pass 1 (non-flex children): Không có → `freeSpace = 390px`
+
+Pass 2 (flex children):
+- `totalFlex = 1 + 2 + 1 = 4`
+- **A** (flex=1): `390 × 1/4 = **97.5px**` (25%)
+- **B** (flex=2): `390 × 2/4 = **195px**` (50%)
+- **C** (flex=1): `390 × 1/4 = **97.5px**` (25%)
+
+**Thêm fixed-width item:**
+```dart
+Row(children: [
+  const SizedBox(width: 50),           // fixed 50px (Pass 1)
+  Expanded(flex: 1, child: ...),       // (390-50) × 1/3 = 113px
+  Expanded(flex: 2, child: ...),       // (390-50) × 2/3 = 227px
+])
+```
+Pass 1: SizedBox = 50px, `freeSpace = 390 - 50 = 340px`
+Pass 2: flex child nhận `340px` tổng cộng theo tỉ lệ.

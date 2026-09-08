@@ -418,15 +418,217 @@ class ChatScreen extends StatefulWidget {
 
 **Gợi ý:** Dùng `ConnectionState` của `AsyncSnapshot` để track loading state, hoặc quản lý state riêng với field `_isLoading`.
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Thứ tự của các lifecycle methods khi widget được mount lần đầu?"**
-   - `createState()` → `initState()` → `didChangeDependencies()` → `build()`
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `didUpdateWidget` và `didChangeDependencies`?"**
-   - `didUpdateWidget`: parent rebuild với Widget config mới (oldWidget khác widget)
-   - `didChangeDependencies`: InheritedWidget mà widget phụ thuộc thay đổi giá trị
+---
 
-3. **"Tại sao `dispose()` cần cleanup trước `super.dispose()`?"**
-   - Sau `super.dispose()`, framework teardown TickerProvider, binding, etc.
-   - Nếu cleanup sau → đang dùng resources đã bị teardown → crash
+#### Q1 [Junior] — "Thứ tự lifecycle methods khi widget mount lần đầu là gì?"
+
+**Trả lời chuẩn:**
+
+```
+StatefulWidget.createState()          // tạo State object
+    ↓
+State.initState()                     // setup: controller, timer, subscription
+    ↓
+State.didChangeDependencies()         // lần đầu: safe để dùng context.watch()
+    ↓
+State.build(context)                  // tạo UI lần đầu
+    ↓
+[User interactions / parent rebuilds]
+    ↓
+State.didUpdateWidget(oldWidget)?     // nếu parent rebuild với config mới
+State.didChangeDependencies()?        // nếu InheritedWidget thay đổi
+State.build(context)                  // rebuild UI
+    ↓
+State.deactivate()                    // widget rời khỏi tree (navigate away)
+    ↓
+State.dispose()                       // cleanup: dispose controller, cancel sub
+```
+
+**Nhớ:** `initState` không thể dùng `context.watch()` / `dependOn`. `didChangeDependencies` là nơi an toàn đầu tiên để làm điều đó.
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `didUpdateWidget` và `didChangeDependencies`?"
+
+**Trả lời chuẩn:**
+
+| | `didUpdateWidget(T oldWidget)` | `didChangeDependencies()` |
+|---|---|---|
+| **Trigger** | Parent rebuild tạo Widget mới (cùng type+key) | InheritedWidget mà widget phụ thuộc thay đổi |
+| **Có old data** | Có — `oldWidget` là Widget trước đó | Không — cần so sánh tự thủ công |
+| **Use case** | Sync internal resource khi config thay đổi | Re-fetch data khi locale/theme thay đổi |
+| **Gọi sau** | Sau `element.update()` trước `build()` | Sau `initState()` (lần đầu) hoặc sau dependency change |
+
+```dart
+@override
+void didUpdateWidget(VideoPlayer oldWidget) {
+  super.didUpdateWidget(oldWidget);
+  if (oldWidget.url != widget.url) { // config thay đổi
+    _controller.load(widget.url);
+  }
+}
+
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  // InheritedWidget thay đổi — an toàn để dùng context
+  _locale = Localizations.localeOf(context);
+}
+```
+
+---
+
+#### Q3 [Middle] — "Tại sao `dispose()` cần cleanup TRƯỚC `super.dispose()`? Điều gì xảy ra nếu làm ngược?"
+
+**Trả lời chuẩn:**
+
+`super.dispose()` (tức là `State.dispose()` của Flutter framework) thực hiện:
+- Teardown `TickerProvider` (nếu dùng `SingleTickerProviderStateMixin`)
+- Clear bindings và mounted flag (`_debugLifecycleState = _StateLifecycle.defunct`)
+- Sau đó `mounted` = false
+
+Nếu cleanup **sau** `super.dispose()`:
+```dart
+// ❌ Sai — crash!
+@override
+void dispose() {
+  super.dispose(); // ← mounted = false, TickerProvider torn down
+  _controller.dispose(); // ← AnimationController cố stop Ticker đã torn down → assertion error
+  _subscription.cancel(); // ← ok nhưng conceptually wrong
+}
+
+// ✅ Đúng — cleanup resources trước khi framework teardown
+@override
+void dispose() {
+  _controller.dispose();    // dừng animation (Ticker vẫn còn hoạt động)
+  _subscription.cancel();   // hủy stream
+  _focusNode.dispose();     // release focus
+  super.dispose();          // ← bây giờ mới teardown framework resources
+}
+```
+
+**Quy tắc:** Bất cứ thứ gì bạn tạo trong `initState()` → dispose trong `dispose()` TRƯỚC `super.dispose()`.
+
+---
+
+#### Q4 [Senior] — "`didChangeDependencies()` được gọi khi nào chính xác? Tại sao nó chạy sau `initState()` lần đầu?"
+
+**Trả lời chuẩn:**
+
+`didChangeDependencies()` được gọi trong 2 trường hợp:
+
+**1. Lần đầu sau `initState()`:** Đây là thiết kế của framework — `StatefulElement.mount()` gọi `initState()`, sau đó `firstBuild()`, sau đó `performRebuild()`, trong đó `performRebuild()` gọi `_updateInheritance()` → `didChangeDependencies()`. Mục đích: đảm bảo code phụ thuộc InheritedWidget có thể chạy ngay lần đầu build.
+
+**2. Khi InheritedWidget thay đổi:** Khi `InheritedWidget.updateShouldNotify()` = true → Flutter mark tất cả dependents dirty → `Element.didChangeDependencies()` → `State.didChangeDependencies()` được gọi trước `build()` tiếp theo.
+
+```dart
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  // Chạy: (a) ngay sau initState, (b) khi Locale/Theme/Provider data thay đổi
+  final locale = Localizations.localeOf(context); // an toàn ở đây
+  if (_locale != locale) {
+    _locale = locale;
+    _reloadLocalizedContent(); // re-fetch khi ngôn ngữ thay đổi
+  }
+}
+```
+
+**Tối ưu:** Nếu logic expensive, hãy compare trước khi execute (như ví dụ trên) vì `didChangeDependencies` có thể được gọi nhiều lần.
+
+---
+
+#### Q5 [Middle] — "Hot reload ảnh hưởng đến lifecycle thế nào? `reassemble()` là gì?"
+
+**Trả lời chuẩn:**
+
+**Hot reload** (Ctrl+S / `r` trong flutter run) chỉ inject code mới vào Dart VM và rebuild widget tree — **không** restart app, không clear State.
+
+Lifecycle khi hot reload:
+```
+reassemble()    // được gọi trên mọi State trong tree
+    ↓
+build()         // rebuild UI với code mới
+```
+
+`State.reassemble()` được design để override cho dev-time debugging:
+
+```dart
+@override
+void reassemble() {
+  super.reassemble();
+  // Reset nội bộ giúp hot reload hoạt động tốt hơn
+  // Ví dụ: image cache, custom data
+  _cachedImage = null; // clear cache để load lại với code mới
+}
+```
+
+**Hot restart** (`R` viết hoa) thì khác — restart hoàn toàn app, mọi State bị mất, lifecycle bắt đầu lại từ `main()`.
+
+**Điểm quan trọng cho interview:** Nếu hot reload không cập nhật đúng (ví dụ: `initState` có logic quan trọng), bạn cần hot restart. `reassemble()` là hook để xử lý edge case này.
+
+---
+
+#### Q6 [Senior] — "`deactivate()` vs `dispose()` — khác biệt và khi nào mỗi cái được gọi?"
+
+**Trả lời chuẩn:**
+
+| | `deactivate()` | `dispose()` |
+|---|---|---|
+| **Khi nào** | Widget rời khỏi tree (tạm thời hoặc vĩnh viễn) | Widget bị permanently remove khỏi tree |
+| **mounted** | Vẫn = true tại thời điểm gọi | Sau `super.dispose()` → mounted = false |
+| **Có thể remount** | Có (GlobalKey reparenting, đang trong deactivated pool) | Không |
+| **Thường override** | Hiếm | Thường — cleanup resources |
+
+```
+Navigate push new route:
+  Old screen: deactivate() (nhưng KHÔNG dispose — vẫn trong stack)
+
+Navigate pop:
+  Old screen: deactivate() → dispose() (vĩnh viễn xóa)
+  Previous screen: (được activate lại nếu đang trong deactivated state)
+```
+
+**GlobalKey reparenting:** Flutter có thể move Element từ tree position này sang position khác bằng `deactivate()` + remount. Đây là lý do GlobalKey cho phép "teleport" widget sang vị trí khác mà không mất State.
+
+---
+
+#### Q7 [Trace Code] — "Navigate to → tap back → navigate again: lifecycle methods nào được gọi?"
+
+```dart
+// Route A: HomeScreen
+// Route B: DetailScreen — StatefulWidget với print trong mọi lifecycle method
+class _DetailState extends State<DetailScreen> {
+  @override void initState() { super.initState(); print('initState'); }
+  @override void didChangeDependencies() { super.didChangeDependencies(); print('didChangeDependencies'); }
+  @override void build(context) { print('build'); return const Scaffold(); }
+  @override void deactivate() { super.deactivate(); print('deactivate'); }
+  @override void dispose() { print('dispose'); super.dispose(); }
+}
+```
+
+**Lần 1: Navigate từ Home → Detail:**
+```
+initState
+didChangeDependencies
+build
+```
+
+**Tap back (pop Detail):**
+```
+deactivate
+dispose
+```
+
+**Lần 2: Navigate lại Home → Detail:**
+```
+initState           ← State hoàn toàn mới (lần trước đã dispose)
+didChangeDependencies
+build
+```
+
+**Điểm quan trọng:** Mỗi lần navigate đến route mới (push), một Element và State mới được tạo. Không có State nào được "cached" giữa các lần navigate (trừ khi dùng `AutomaticKeepAliveClientMixin` với PageView/TabBarView hoặc nested navigator).

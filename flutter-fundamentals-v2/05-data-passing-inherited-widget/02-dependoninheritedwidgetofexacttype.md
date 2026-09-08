@@ -329,17 +329,247 @@ Widget build(BuildContext context) {
 3. Quan sát output: widget nào rebuild và widget nào không
 4. Thêm widget mới vào tree nhưng KHÔNG gọi `CounterProvider.of(context)` → widget đó có rebuild không?
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `dependOn` và `getInherited`?"**
-   - `dependOn`: đăng ký dependency → auto-rebuild khi InheritedWidget thay đổi
-   - `getInherited`: chỉ read → không auto-rebuild
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao không gọi `dependOn` trong `initState()`?"**
-   - `initState` chạy trước widget hoàn toàn được attach vào tree
-   - Dependency registration chưa được setup đầy đủ
-   - Dùng `didChangeDependencies()` thay thế
+---
 
-3. **"`didChangeDependencies()` được gọi khi nào?"**
-   - Lần đầu sau `initState()`
-   - Mỗi khi InheritedWidget mà widget phụ thuộc thay đổi giá trị
+#### Q1 [Junior] — "Sự khác biệt giữa `dependOn` và `getInherited`?"
+
+**Trả lời chuẩn:**
+
+| | `dependOnInheritedWidgetOfExactType<T>()` | `getInheritedWidgetOfExactType<T>()` |
+|---|---|---|
+| **Đăng ký dependency** | Có — element được thêm vào `_dependents` | Không |
+| **Auto-rebuild** | Có — khi InheritedWidget thay đổi | Không |
+| **Use case** | Reactive UI (cần update khi data thay đổi) | Đọc 1 lần trong initState, callbacks |
+| **Performance** | Tốn thêm overhead để track dependency | Nhẹ hơn |
+
+```dart
+// Widget cần reactive — dùng dependOn (thông qua context.watch hoặc .of())
+@override Widget build(context) {
+  final theme = Theme.of(context); // internally: dependOnInheritedWidgetOfExactType
+  return Text('hello', style: TextStyle(color: theme.primaryColor));
+  // Widget này rebuild khi theme thay đổi
+}
+
+// Callback không cần reactive — dùng read (context.read hoặc getInherited)
+ElevatedButton(
+  onPressed: () {
+    // Đọc 1 lần trong handler — không cần watch
+    final router = GoRouter.of(context); // hoặc context.read<Router>()
+    router.go('/home');
+  },
+  child: const Text('Go'),
+)
+```
+
+---
+
+#### Q2 [Junior] — "Tại sao không gọi `dependOnInheritedWidgetOfExactType` trong `initState()`?"
+
+**Trả lời chuẩn:**
+
+`initState()` được gọi trong `Element.mount()` — tại thời điểm này, Element **chưa được kết nối hoàn toàn** vào tree. Cụ thể, `_inheritedElements` map (cache để tìm InheritedWidget) chưa được populate.
+
+```dart
+// ❌ Sai — có thể return null hoặc throw
+@override void initState() {
+  super.initState();
+  final theme = Theme.of(context);   // dependOnInheritedWidgetOfExactType
+  // Lỗi: 'dependOnInheritedWidgetOfExactType was called before build()'
+}
+
+// ✅ Đúng — dùng didChangeDependencies
+@override void didChangeDependencies() {
+  super.didChangeDependencies();
+  final theme = Theme.of(context);   // an toàn ở đây
+  _primaryColor = theme.primaryColor;
+}
+
+// ✅ Cũng OK nếu chỉ cần đọc 1 lần mà không watch (dùng read thay vì watch)
+// Nhưng vẫn dùng didChangeDependencies để an toàn
+```
+
+**Ngoại lệ:** `MediaQuery.of(context)` trong `initState()` sẽ không crash ngay nhưng dependency không được registered → widget sẽ không rebuild khi MediaQuery thay đổi — behavior không như mong đợi.
+
+---
+
+#### Q3 [Middle] — "`didChangeDependencies()` được gọi khi nào chính xác?"
+
+**Trả lời chuẩn:**
+
+`didChangeDependencies()` được gọi trong **2 trường hợp**:
+
+**1. Lần đầu sau `initState()`:**
+Sequence: `mount()` → `initState()` → `firstBuild()` → trong build scope, sau `_updateInheritance()` → `didChangeDependencies()`
+
+**2. Khi InheritedWidget thay đổi:**
+Sequence: InheritedWidget notify → `element.didChangeDependencies()` → `State.didChangeDependencies()` → element được mark dirty → `build()` được gọi
+
+```dart
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  // Pattern tốt: guard để tránh execute nếu data không thực sự thay đổi
+  final newLocale = Localizations.localeOf(context);
+  if (newLocale == _currentLocale) return; // no-op nếu không đổi
+  _currentLocale = newLocale;
+  _loadLocalizedData(newLocale); // chỉ reload khi locale thực sự thay đổi
+}
+```
+
+**Lưu ý:** `didChangeDependencies()` có thể được gọi **nhiều lần** (mỗi khi bất kỳ InheritedWidget nào widget phụ thuộc thay đổi). Luôn guard với condition check.
+
+---
+
+#### Q4 [Senior] — "`dependOnInheritedWidgetOfExactType` lưu dependency ở đâu? `Element._dependencies` list?"
+
+**Trả lời chuẩn:**
+
+Dependency được lưu ở **hai phía**:
+
+**Phía Consumer Element:**
+```dart
+// Element._dependencies: Set<InheritedElement>
+// Lưu tất cả InheritedElements mà element này phụ thuộc
+Set<InheritedElement>? _dependencies;
+```
+
+**Phía InheritedElement:**
+```dart
+// InheritedElement._dependents: Map<Element, Object?>
+// Key: dependent element, Value: aspect (phần data cụ thể, nếu có)
+Map<Element, Object?> _dependents = HashMap<Element, Object?>();
+```
+
+**Quá trình:**
+```dart
+// Element.dependOnInheritedWidgetOfExactType<T>()
+InheritedElement? ancestor = _inheritedElements[T]; // O(1) lookup
+if (ancestor != null) {
+  // Đăng ký 2 chiều:
+  _dependencies ??= HashSet<InheritedElement>();
+  _dependencies!.add(ancestor);   // element biết nó phụ thuộc InheritedElement nào
+  ancestor.updateDependencies(this, null); // InheritedElement biết ai phụ thuộc nó
+}
+```
+
+**Cleanup:** Khi element unmount → `_dependencies` được clear → InheritedElement's `_dependents` được update → không còn notify element đã unmount.
+
+---
+
+#### Q5 [Middle] — "Tại sao `getElementForInheritedWidgetOfExactType` (không register) ít dùng hơn?"
+
+**Trả lời chuẩn:**
+
+`getElementForInheritedWidgetOfExactType()` (deprecated, giờ là `getInheritedWidgetOfExactType()`) chỉ lookup InheritedElement mà không đăng ký dependency — có 2 lý do hiếm dùng:
+
+**1. Không reactive:** Widget không tự rebuild khi data thay đổi. Phải tự implement update mechanism → boilerplate.
+
+**2. Use case hẹp:** Chỉ hữu ích trong:
+- `initState()` / `dispose()` — không thể dùng `dependOn` ở đây
+- Event handlers / callbacks — đọc data 1 lần, không cần reactive
+- Nếu widget sẽ sớm bị rebuild vì lý do khác (e.g., parent rebuild)
+
+```dart
+// Rare valid use case: đọc navigator trong dispose
+@override
+void dispose() {
+  // context.dependOn ở đây không hợp lý — widget đang unmount
+  // Dùng read thay thế:
+  final analytics = context.getInheritedWidgetOfExactType<AnalyticsScope>()!;
+  analytics.logEvent('screen_closed');
+  super.dispose();
+}
+```
+
+---
+
+#### Q6 [Middle] — "`of(context)` pattern: tại sao convention này quan trọng cho testability?"
+
+**Trả lời chuẩn:**
+
+`of(context)` là convention Flutter cho static factory method trên `InheritedWidget`:
+
+```dart
+class AppTheme extends InheritedWidget {
+  final ThemeData data;
+  
+  // Convention: static of() method
+  static ThemeData of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppTheme>()!.data;
+  
+  // Hoặc với null safety:
+  static ThemeData? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppTheme>()?.data;
+}
+```
+
+**Lợi ích:**
+- **Testability:** Trong test, wrap widget under test với `AppTheme(data: mockTheme, ...)` → component nhận mock data mà không cần change implementation
+- **Encapsulation:** Consumer không biết implementation details — chỉ biết `AppTheme.of(context)` trả về `ThemeData`
+- **Swappable:** Có thể swap implementation (e.g., `InheritedWidget` → `InheritedNotifier` → Provider) mà không break consumers
+
+```dart
+// Test
+testWidgets('renders with custom theme', (tester) async {
+  await tester.pumpWidget(
+    AppTheme(
+      data: ThemeData(primaryColor: Colors.red), // mock theme
+      child: const WidgetUnderTest(),
+    ),
+  );
+  // WidgetUnderTest nhận ThemeData.red mà không thay đổi code
+});
+```
+
+---
+
+#### Q7 [Trace Code] — "`didChangeDependencies` bị gọi bao nhiêu lần?"
+
+```dart
+class MultiDepWidget extends StatefulWidget {
+  const MultiDepWidget({super.key});
+  @override State<MultiDepWidget> createState() => _MultiDepWidgetState();
+}
+
+class _MultiDepWidgetState extends State<MultiDepWidget> {
+  int _depCallCount = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _depCallCount++;
+    print('didChangeDependencies #$_depCallCount');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Widget phụ thuộc VÀO CẢ HAI InheritedWidgets
+    final theme = Theme.of(context);           // dep 1
+    final mediaQuery = MediaQuery.of(context); // dep 2
+    return Text('${theme.primaryColor} ${mediaQuery.size}');
+  }
+}
+
+// Scenario: Trong 3 giây sau khi widget mount, xảy ra:
+// - Giây 1: Theme thay đổi (dark/light mode toggle)
+// - Giây 2: Keyboard xuất hiện (MediaQuery.viewInsets thay đổi)
+// - Giây 3: Không có gì thay đổi
+```
+
+**Output:**
+```
+didChangeDependencies #1   // lần đầu sau initState — LUÔN gọi
+didChangeDependencies #2   // giây 1: Theme thay đổi → updateShouldNotify = true
+didChangeDependencies #3   // giây 2: MediaQuery thay đổi → updateShouldNotify = true
+                            // giây 3: không có gì → không gọi thêm
+```
+
+**Điểm quan trọng:**
+- Lần đầu là **guaranteed** — không phụ thuộc vào InheritedWidget nào thay đổi
+- Mỗi dependency thay đổi → 1 lần gọi riêng biệt (không batch)
+- Nếu cả Theme và MediaQuery thay đổi trong cùng frame → có thể gọi 2 lần hoặc 1 lần (Flutter có thể batch)
+- Guard với `if (condition)` trong `didChangeDependencies` để tránh repeated expensive operations

@@ -353,18 +353,284 @@ context.go(AppPaths.product('123'));
 2. `context.go('/home')` khác `context.push('/home')` ở điểm nào?
 3. Redirect function được gọi ở đâu trong flow?
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Navigator 1.0 hạn chế gì khiến Navigator 2.0 ra đời?"**
-   - Không sync URL (web)
-   - Deep link handling phức tạp
-   - Back button browser không hoạt động đúng
-   - Imperative API khó test và reason about
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"GoRouter là gì?"**
-   - Package wrapper trên Navigator 2.0
-   - Declarative route config, URL sync, deep link, nested routing, redirect
+---
 
-3. **"`context.go()` vs `context.push()` trong GoRouter?"**
-   - `go()`: navigate và replace history nếu same shell — URL-first thinking
-   - `push()`: thêm vào stack — giống Navigator.push()
+#### Q1 [Junior] — "Navigator 1.0 hạn chế gì khiến Navigator 2.0 ra đời?"
+
+**Trả lời chuẩn:**
+
+Navigator 1.0 có **4 hạn chế chính** khi phát triển Flutter Web và deep linking:
+
+**1. Không sync URL:** Trên web, browser URL bar không được cập nhật khi navigate. Push `/profile` nhưng URL vẫn là `/` → không shareable link.
+
+**2. Browser back button không đúng:** Back button của browser dùng browser history, không phải Flutter Navigator stack → inconsistent UX trên web.
+
+**3. Deep link phức tạp:** Khi app nhận deep link `myapp://product/123`, phải viết custom code để translate URL sang Navigator operations. Không có native URL→route mapping.
+
+**4. Imperative API khó test:** `Navigator.push(context, ...)` là imperative — khó để test navigation logic independent của UI. Muốn test "nếu user chưa login → redirect về login" phải render entire widget tree.
+
+**Navigator 2.0 giải pháp:**
+- `RouterDelegate`: state-driven — navigator phản ánh app state, không phải ngược lại
+- `RouteInformationParser`: parse URL ↔ route state bidirectionally
+- URL luôn sync với navigation state
+
+---
+
+#### Q2 [Junior] — "`GoRouter` là gì? Tại sao phổ biến hơn Navigator 2.0 thuần?"
+
+**Trả lời chuẩn:**
+
+`GoRouter` là package (từ Flutter team) wrap trên Navigator 2.0, cung cấp API đơn giản hơn:
+
+```dart
+// GoRouter setup
+final router = GoRouter(
+  initialLocation: '/',
+  redirect: (ctx, state) {
+    // Auth guard toàn cục
+    if (!AuthService.isLoggedIn && state.uri.path != '/login') {
+      return '/login';
+    }
+    return null; // không redirect
+  },
+  routes: [
+    GoRoute(path: '/', builder: (ctx, _) => const HomePage()),
+    GoRoute(
+      path: '/product/:id',
+      builder: (ctx, state) => ProductPage(id: state.pathParameters['id']!),
+    ),
+    ShellRoute(
+      builder: (ctx, state, child) => ScaffoldWithNav(child: child),
+      routes: [
+        GoRoute(path: '/home', builder: (_, __) => const HomeTab()),
+        GoRoute(path: '/search', builder: (_, __) => const SearchTab()),
+      ],
+    ),
+  ],
+);
+
+MaterialApp.router(routerConfig: router)
+```
+
+**Tại sao phổ biến hơn Navigator 2.0 thuần:** Navigator 2.0 thuần yêu cầu implement `RouterDelegate` + `RouteInformationParser` manually — phức tạp, nhiều boilerplate. GoRouter cung cấp declarative API, URL sync, deep link, nested routing, redirect tất cả trong vài dòng config.
+
+---
+
+#### Q3 [Middle] — "`context.go()` vs `context.push()` trong GoRouter — khác nhau thế nào?"
+
+**Trả lời chuẩn:**
+
+| | `context.go(path)` | `context.push(path)` |
+|---|---|---|
+| **Navigation stack** | Replace history (no back) | Add to stack (can back) |
+| **Back button** | Không thể back | Có thể back |
+| **URL** | Sync URL, replace history | Sync URL, add to history |
+| **Tương đương Nav 1.0** | `pushReplacementNamed` | `pushNamed` |
+
+```dart
+// context.go — replace navigation, không có back
+// Dùng cho: login thành công → home (không muốn back về login)
+onPressed: () => context.go('/home'),
+
+// context.push — thêm vào stack, có back
+// Dùng cho: tap item → detail (muốn back về list)
+onPressed: () => context.push('/product/p123'),
+
+// context.goNamed — như go() nhưng dùng route name thay vì path
+onPressed: () => context.goNamed('home'),
+
+// pop với result
+context.pop('selected_color');
+```
+
+**Rule of thumb:** `go()` cho navigation chính (bottom nav tabs, post-auth redirect). `push()` cho navigation phụ (detail screens, dialogs, sub-flows).
+
+---
+
+#### Q4 [Senior] — "Navigator 2.0 `RouterDelegate` + `RouteInformationParser` — hai class này có nhiệm vụ gì?"
+
+**Trả lời chuẩn:**
+
+Navigator 2.0 tách biệt 2 trách nhiệm:
+
+**`RouteInformationParser<T>`** — Translate giữa URL (string) và app state:
+```dart
+class AppRouteInformationParser extends RouteInformationParser<AppState> {
+  // URL → AppState (khi app start hoặc deep link)
+  @override
+  Future<AppState> parseRouteInformation(RouteInformation routeInfo) async {
+    final uri = Uri.parse(routeInfo.uri.toString());
+    if (uri.pathSegments.isEmpty) return AppState.home();
+    if (uri.pathSegments[0] == 'product') {
+      return AppState.product(id: uri.pathSegments[1]);
+    }
+    return AppState.notFound();
+  }
+  
+  // AppState → URL (để sync browser URL bar)
+  @override
+  RouteInformation restoreRouteInformation(AppState state) {
+    return RouteInformation(uri: Uri.parse(state.toPath()));
+  }
+}
+```
+
+**`RouterDelegate<T>`** — Build Navigator widget dựa trên app state:
+```dart
+class AppRouterDelegate extends RouterDelegate<AppState>
+    with ChangeNotifier, PopNavigatorRouterDelegateMixin {
+  AppState _state = AppState.home();
+  
+  // GoRouter gọi method này khi state thay đổi
+  @override
+  Widget build(BuildContext context) {
+    return Navigator(
+      pages: [
+        const MaterialPage(child: HomePage()),
+        if (_state.isProduct)
+          MaterialPage(child: ProductPage(id: _state.productId!)),
+      ],
+      onDidRemovePage: (page) {
+        // Handle pop
+        if (_state.isProduct) {
+          _state = AppState.home();
+          notifyListeners(); // URL sync
+        }
+      },
+    );
+  }
+}
+```
+
+---
+
+#### Q5 [Middle] — "`GoRouter` URL sync hoạt động thế nào? Browser URL được cập nhật ra sao?"
+
+**Trả lời chuẩn:**
+
+GoRouter implement `RouteInformationProvider` và `RouteInformationParser` → Flutter Router widget tự động sync URL với browser:
+
+```
+context.go('/product/p123')
+  ↓
+GoRouter._go('/product/p123')
+  ↓
+GoRouterDelegate.go('/product/p123')  // RouterDelegate state thay đổi
+  ↓
+RouterDelegate.notifyListeners()
+  ↓
+Router widget (Flutter built-in) được notify
+  ↓
+Router.build():
+  1. Gọi RouterDelegate.build() → rebuild Navigator với new pages
+  2. Gọi RouteInformationParser.restoreRouteInformation(newState)
+     → trả về RouteInformation(uri: '/product/p123')
+  3. Gọi RouteInformationProvider.routerReportNewRouteInformation(...)
+     → trên web: history.pushState(null, '', '/product/p123') via platform channel
+     → trên mobile: no-op (không có browser)
+```
+
+**Trên mobile:** URL sync là no-op (không có browser). Nhưng route state vẫn được maintain → deep link và `go()` vẫn hoạt động đúng.
+
+---
+
+#### Q6 [Middle] — "Nested navigation (bottom nav + inner navigator) — `ShellRoute` giải quyết gì?"
+
+**Trả lời chuẩn:**
+
+**Vấn đề:** Mỗi bottom nav tab cần navigator riêng — navigate trong tab không ảnh hưởng đến tab khác:
+
+```
+App
+├─ Tab 1 (Home)
+│   └─ HomeListScreen
+│       └─ HomeDetailScreen  ← nested navigate
+├─ Tab 2 (Search)
+│   └─ SearchScreen
+└─ Tab 3 (Profile)
+    └─ ProfileScreen
+```
+
+**`ShellRoute` giải pháp:**
+```dart
+GoRouter(routes: [
+  ShellRoute(
+    // Shell = persistent UI wrapper (BottomNavigationBar)
+    builder: (ctx, state, child) => ScaffoldWithBottomNav(
+      currentIndex: _getTabIndex(state.uri.path),
+      child: child, // ← active tab content
+    ),
+    routes: [
+      GoRoute(
+        path: '/home',
+        builder: (_, __) => const HomeScreen(),
+        routes: [
+          // Nested route TRONG shell — bottom nav vẫn visible
+          GoRoute(
+            path: 'detail/:id',
+            builder: (_, state) => HomeDetailScreen(id: state.pathParameters['id']!),
+          ),
+        ],
+      ),
+      GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
+    ],
+  ),
+])
+```
+
+Với ShellRoute, navigate `/home/detail/123` → Shell (BottomNav) vẫn hiển thị, chỉ content area thay đổi. Khác với non-shell route: navigate sẽ thay thế toàn bộ screen (BottomNav biến mất).
+
+---
+
+#### Q7 [Trace Code] — "`context.go('/home')` vs `context.push('/home')`: history stack khác nhau thế nào?"
+
+```dart
+// Initial state: user ở màn hình Login (/login)
+// GoRouter routes:
+// / → HomePage
+// /login → LoginPage  
+// /product/:id → ProductPage
+
+// Scenario A: login thành công → dùng go()
+void onLoginSuccess() {
+  context.go('/');
+}
+
+// Scenario B: từ Home, xem product → dùng push()
+void onProductTap(String id) {
+  context.push('/product/$id');
+}
+
+// Hỏi: browser history và navigation stack khác nhau thế nào?
+```
+
+**Scenario A — `context.go('/')`:**
+```
+Browser history: [... /login] → thêm '/' (REPLACE: /login → /)
+Navigator pages: [MaterialPage(HomePage)] // chỉ HomePage
+Back button: Không thể back về /login
+URL: /
+
+// Use case: Đúng cho post-login redirect — user không muốn back về login
+```
+
+**Scenario B — `context.push('/product/p123')` từ HomePage:**
+```
+Browser history: [... /, /product/p123]  // ADD new entry
+Navigator pages: [MaterialPage(HomePage), MaterialPage(ProductPage)]
+Back button: Back về / (HomePage)
+URL: /product/p123
+
+// Use case: Đúng cho detail navigation — user muốn back về list
+```
+
+**Nếu dùng `go()` thay vì `push()` cho Product:**
+```
+Navigator pages: [MaterialPage(ProductPage)] // HomePage bị xóa!
+Back button: Không thể back → user bị "stuck" tại Product
+```
+→ Đây là lý do quan trọng phải chọn đúng `go()` vs `push()`.

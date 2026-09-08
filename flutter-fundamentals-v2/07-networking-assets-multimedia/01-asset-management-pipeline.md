@@ -312,17 +312,274 @@ CachedNetworkImage(imageUrl: product.imageUrl)
 - `SvgPicture.asset(path, colorFilter: ColorFilter.mode(color, BlendMode.srcIn))`
 - Test với màu khác nhau khi selected/unselected
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `rootBundle` và `DefaultAssetBundle.of(context)`?"**
-   - `rootBundle`: global, không testable
-   - `DefaultAssetBundle.of(context)`: có thể override trong test → better testability
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao nên dùng `CachedNetworkImage` thay vì `Image.network`?"**
-   - `CachedNetworkImage` lưu vào disk cache → load offline, ít network request
-   - `Image.network` chỉ memory cache → mất khi app restart
+---
 
-3. **"Làm thế nào dùng font custom trong Flutter?"**
-   - Khai báo trong `pubspec.yaml` `fonts` section
-   - Dùng `fontFamily: 'YourFont'` trong `TextStyle`
-   - Có thể set default cho toàn app trong `ThemeData`
+#### Q1 [Junior] — "Sự khác biệt giữa `rootBundle` và `DefaultAssetBundle.of(context)`?"
+
+**Trả lời chuẩn:**
+
+| | `rootBundle` | `DefaultAssetBundle.of(context)` |
+|---|---|---|
+| **Scope** | Global singleton | Context-based (có thể override) |
+| **Testability** | Không override được trong test | Có thể override → testable |
+| **Source** | Luôn từ app assets | Có thể từ test fixtures |
+
+```dart
+// rootBundle — global, hard to test
+final data = await rootBundle.loadString('assets/config.json');
+
+// DefaultAssetBundle.of(context) — testable
+final data = await DefaultAssetBundle.of(context).loadString('assets/config.json');
+
+// Trong test: override với mock bundle
+testWidgets('loads config', (tester) async {
+  await tester.pumpWidget(
+    DefaultAssetBundle(
+      bundle: TestAssetBundle(), // mock bundle trả về test data
+      child: const MyWidget(),
+    ),
+  );
+});
+```
+
+**Quy tắc:** Trong production code, dùng `DefaultAssetBundle.of(context)` để code testable. Chỉ dùng `rootBundle` trong context không có `BuildContext` (e.g., trong `main()`).
+
+---
+
+#### Q2 [Junior] — "Tại sao nên dùng `CachedNetworkImage` thay vì `Image.network`?"
+
+**Trả lời chuẩn:**
+
+| | `Image.network` | `CachedNetworkImage` |
+|---|---|---|
+| **Memory cache** | Có (LRU) | Có |
+| **Disk cache** | Không | Có (persistent) |
+| **Offline** | Không | Có (từ disk cache) |
+| **Placeholder** | Hạn chế | `placeholder`, `errorWidget` |
+| **Loading state** | Chỉ `loadingBuilder` | `progressIndicatorBuilder` |
+
+```dart
+// Image.network — mất cache khi app restart
+Image.network(
+  'https://example.com/image.jpg',
+  loadingBuilder: (ctx, child, progress) =>
+      progress == null ? child : CircularProgressIndicator(),
+)
+
+// CachedNetworkImage — persistent disk cache
+CachedNetworkImage(
+  imageUrl: 'https://example.com/image.jpg',
+  placeholder: (ctx, url) => const CircularProgressIndicator(),
+  errorWidget: (ctx, url, err) => const Icon(Icons.error),
+  // Lưu vào disk → lần sau load instant, offline cũng work
+)
+```
+
+**Use case CachedNetworkImage:** Avatar, product images, content images — bất kỳ image nào user có thể xem nhiều lần.
+
+---
+
+#### Q3 [Middle] — "Làm thế nào dùng font custom trong Flutter? Resolution-aware assets?"
+
+**Trả lời chuẩn:**
+
+**Custom fonts:**
+```yaml
+# pubspec.yaml
+flutter:
+  fonts:
+    - family: Montserrat
+      fonts:
+        - asset: assets/fonts/Montserrat-Regular.ttf
+        - asset: assets/fonts/Montserrat-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Montserrat-Italic.ttf
+          style: italic
+```
+
+```dart
+// Dùng trong TextStyle
+Text('Hello', style: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.bold))
+
+// Set default cho toàn app
+MaterialApp(
+  theme: ThemeData(fontFamily: 'Montserrat'),
+)
+```
+
+**Resolution-aware images:**
+```yaml
+flutter:
+  assets:
+    - assets/images/logo.png      # 1x (default)
+    - assets/images/2x/logo.png   # 2x (high DPI)
+    - assets/images/3x/logo.png   # 3x (very high DPI)
+```
+
+Flutter tự chọn resolution phù hợp với device pixel ratio:
+- Device pixel ratio 1.0 → `assets/images/logo.png`
+- Device pixel ratio 2.0 → `assets/images/2x/logo.png`
+- Device pixel ratio 3.0 → `assets/images/3x/logo.png`
+
+---
+
+#### Q4 [Senior] — "Flutter asset pipeline: `pubspec.yaml` → build system → APK/IPA: asset được đóng gói thế nào?"
+
+**Trả lời chuẩn:**
+
+**Build pipeline:**
+
+```
+pubspec.yaml (flutter.assets) 
+  ↓
+flutter tool (dart pub get + flutter pub get)
+  ↓ analyze asset manifest
+asset_manifest.json được generate (map: logical path → physical path)
+  ↓
+flutter build process:
+  - Android: assets đóng gói vào APK's assets/ folder
+  - iOS: assets đóng gói vào app bundle (Resources/)
+  ↓
+Lúc runtime:
+  AssetBundle.load('assets/config.json')
+    → lookup trong asset_manifest.json
+    → load từ APK/app bundle
+    → return bytes
+```
+
+**Nội dung `AssetManifest.json`:**
+```json
+{
+  "assets/config.json": ["assets/config.json"],
+  "assets/images/logo.png": [
+    "assets/images/logo.png",
+    "assets/images/2x/logo.png",
+    "assets/images/3x/logo.png"
+  ]
+}
+```
+
+**Lazy loading vs eager loading:** Tất cả assets được bundled vào APK/IPA, nhưng chỉ loaded vào memory khi cần (`AssetBundle.load()` là async và lazy). Tuy nhiên, toàn bộ assets tăng app size — cân nhắc dùng network assets cho content lớn.
+
+---
+
+#### Q5 [Middle] — "`Image.asset` vs `AssetImage` — khi nào dùng cái nào? Cache mechanism?"
+
+**Trả lời chuẩn:**
+
+| | `Image.asset(path)` | `AssetImage(path)` |
+|---|---|---|
+| **Type** | Widget | `ImageProvider` |
+| **Dùng trong** | Widget tree trực tiếp | `DecorationImage`, `CircleAvatar`, v.v. |
+| **Cache** | Tự động qua `PaintingBinding.imageCache` | Tự động qua `PaintingBinding.imageCache` |
+| **Custom size** | `width`, `height` params | Phải wrap trong widget |
+
+```dart
+// Image.asset — widget trực tiếp
+Image.asset(
+  'assets/logo.png',
+  width: 100,
+  cacheWidth: 200, // cache ở resolution cao hơn
+)
+
+// AssetImage — ImageProvider cho Container decoration
+Container(
+  decoration: const BoxDecoration(
+    image: DecorationImage(
+      image: AssetImage('assets/background.png'),
+      fit: BoxFit.cover,
+    ),
+  ),
+)
+
+// CircleAvatar
+const CircleAvatar(
+  backgroundImage: AssetImage('assets/avatar.png'),
+)
+```
+
+**Cache:** Flutter dùng `ImageCache` (max 100 images, 100MB). Images được cached theo `ImageProvider` key. `AssetImage('logo.png')` và `Image.asset('logo.png')` dùng cùng cache key → không load lại.
+
+---
+
+#### Q6 [Middle] — "Vector asset (SVG) trong Flutter: tại sao không support native? `flutter_svg` dùng cơ chế gì?"
+
+**Trả lời chuẩn:**
+
+**Tại sao Flutter không support SVG native:**
+
+SVG là format phức tạp (CSS animations, filters, masks, gradients, text, clip-path...). Implementing full SVG spec trong Flutter engine rất tốn chi phí và tăng bundle size. Flutter chọn focus vào Canvas API performance thay vì SVG rendering.
+
+**`flutter_svg` package:**
+
+```dart
+// flutter_svg parse SVG → Flutter Canvas commands
+SvgPicture.asset(
+  'assets/icon.svg',
+  width: 24,
+  height: 24,
+  colorFilter: const ColorFilter.mode(Colors.blue, BlendMode.srcIn),
+)
+
+// Từ network
+SvgPicture.network('https://example.com/icon.svg')
+
+// Từ string
+SvgPicture.string('<svg>...</svg>')
+```
+
+**Cơ chế nội bộ:**
+1. Parse SVG XML → `DrawableRoot` (AST of SVG elements)
+2. Traverse AST → generate `Canvas.drawPath()`, `Canvas.drawRect()`, v.v.
+3. Cache compiled picture (không parse lại mỗi lần)
+
+**Hạn chế:** `flutter_svg` không support toàn bộ SVG spec (CSS animations, filters complex...). Với SVG phức tạp → consider convert sang PNG/WebP hoặc Lottie animation.
+
+---
+
+#### Q7 [Trace Code] — "Resolution-aware asset load thế nào với device pixel ratio 2.5?"
+
+```dart
+// pubspec.yaml:
+// flutter:
+//   assets:
+//     - assets/images/icon.png      # 1x
+//     - assets/images/2x/icon.png   # 2x
+//     - assets/images/3x/icon.png   # 3x
+
+// Device: pixel ratio = 2.5 (e.g., many Android phones)
+
+Image.asset('assets/images/icon.png') // Cái nào được load?
+```
+
+**Flutter's resolution selection algorithm:**
+
+Flutter tìm asset với **scale closest to (nhưng không nhỏ hơn) devicePixelRatio**:
+
+```
+devicePixelRatio = 2.5
+
+Available scales: 1x, 2x, 3x
+
+Flutter algorithm:
+1. Tìm scale ≥ devicePixelRatio (gần nhất): 3x (scale=3.0) ✅
+   (2x = 2.0 < 2.5 → skip; 3x = 3.0 ≥ 2.5 → chọn)
+   
+→ Load: assets/images/3x/icon.png
+→ Render: image được scale xuống với ratio 3.0/2.5 = 1.2x
+```
+
+**Nếu chỉ có 1x và 2x (không có 3x):**
+```
+devicePixelRatio = 2.5
+Available: 1x, 2x
+Không có scale ≥ 2.5 → chọn scale cao nhất có sẵn: 2x
+→ Load: assets/images/2x/icon.png (và scale up 2.5/2.0 = 1.25x)
+→ Slightly blurry nhưng chấp nhận được
+```
+
+**Kết luận:** Luôn provide ít nhất 1x, 2x, 3x cho images quan trọng (icons, logos). Platform images app store yêu cầu 1x/2x/3x riêng — không dùng Flutter resolution system.

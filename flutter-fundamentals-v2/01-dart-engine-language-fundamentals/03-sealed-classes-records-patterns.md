@@ -506,16 +506,224 @@ String describe(Object? obj) {
 - `TooShort({required String field, required int minLength})`
 - `TooWeak(List<String> requirements)` — những yêu cầu chưa đáp ứng
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sealed class khác abstract class ở điểm nào?"**
-   - Sealed: hierarchy đóng (chỉ cùng library), compiler verify exhaustiveness
-   - Abstract: hierarchy mở, ai cũng extend được, không có exhaustive check
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Records trong Dart khác List và Map ở điểm nào?"**
-   - Records: typed, structural equality, destructurable, fixed schema compile-time
-   - List/Map: dynamic type, reference equality, runtime schema
+---
 
-3. **"Khi nào dùng sealed class, khi nào dùng enum?"**
-   - Enum: tập hợp constant giá trị đơn giản, không có state
-   - Sealed: khi mỗi variant cần carry data khác nhau (ADT)
+#### Q1 [Junior] — "Sealed class khác abstract class ở điểm nào? Khi nào dùng sealed?"
+
+**Trả lời chuẩn:**
+
+Sự khác biệt cốt lõi nằm ở **tính đóng của hierarchy** và **exhaustiveness checking**:
+
+| | `abstract class` | `sealed class` |
+|---|---|---|
+| Ai extend được | Mọi file | Chỉ cùng library |
+| Hierarchy | Mở — ai cũng thêm subtype được | Đóng — compiler biết toàn bộ subtype |
+| Exhaustive switch | Không có — phải dùng `default` | Bắt buộc — compiler báo lỗi nếu thiếu case |
+| Use case | Shared implementation (template) | Model state variants, Result type, ADT |
+
+```dart
+// abstract: hierarchy mở — bất kỳ ai cũng extend được
+abstract class Shape { double get area; }
+// → switch phải có default vì compiler không biết hết subtype
+
+// sealed: hierarchy đóng trong library này
+sealed class NetworkState {}
+class Loading extends NetworkState {}
+class Success extends NetworkState { final dynamic data; }
+class Failure extends NetworkState { final String msg; }
+// → switch không cần default, compiler verify đủ case
+```
+
+**Chọn sealed khi:** muốn model tập hợp trạng thái hữu hạn (UI state, Result type, domain event) và cần compiler đảm bảo xử lý đủ mọi trường hợp.
+
+---
+
+#### Q2 [Junior] — "Records trong Dart khác List và Map ở điểm nào? Khác class thường thế nào?"
+
+**Trả lời chuẩn:**
+
+**Records vs List/Map:**
+- Records: **typed** (compiler biết type từng field), **structural equality** tự động, **fixed schema** tại compile time, destructurable
+- List/Map: dynamic type (chỉ biết element type chung), **reference equality** mặc định, schema thay đổi được ở runtime
+
+**Records vs Class thường:**
+- Records: **anonymous** (không cần đặt tên class), **structural equality** tự động (compiler generate `==` và `hashCode`), **không có method** (trừ getter), không extend/implement
+- Class: cần khai báo tên, phải tự override `==`/`hashCode` nếu muốn value equality, có đầy đủ method, có thể extend/implement
+
+```dart
+// Record: không cần class, equality tự động
+var p1 = (x: 1, y: 2);
+var p2 = (x: 1, y: 2);
+print(p1 == p2); // true — structural equality
+
+// Class: phải tự implement
+class Point {
+  final int x, y;
+  @override bool operator ==(Object o) => o is Point && o.x == x && o.y == y;
+  @override int get hashCode => Object.hash(x, y);
+}
+```
+
+**Dùng Record khi:** cần trả nhiều giá trị từ function, tuple tạm thời, không cần behavior.
+
+---
+
+#### Q3 [Junior] — "Khi nào dùng sealed class, khi nào dùng enum?"
+
+**Trả lời chuẩn:**
+
+**Chọn enum khi:** Tập hợp constant đơn giản, các case **không cần carry data riêng**, không cần class body phức tạp:
+```dart
+enum Status { loading, success, failure }
+enum Direction { north, south, east, west }
+```
+
+**Chọn sealed class khi:** Mỗi variant cần **carry data khác nhau** (Algebraic Data Type), hoặc cần method/behavior riêng per variant:
+```dart
+sealed class UiState<T> {}
+class Loading<T> extends UiState<T> {}                        // không có data
+class Success<T> extends UiState<T> { final T data; }         // có data
+class Failure<T> extends UiState<T> { final String msg; }     // có error message khác
+```
+
+**Dart 3 enum đã mạnh hơn** (có thể có method và field), nhưng vẫn không thể: có generic type parameter, carry data khác nhau per variant, hay implement logic phức tạp per variant.
+
+---
+
+#### Q4 [Senior] — "Exhaustiveness check của sealed class xảy ra ở compile time hay runtime? AOT output có gì thêm không?"
+
+**Trả lời chuẩn:**
+
+**100% compile-time — Dart Analyzer thực hiện exhaustiveness proof, không có runtime check nào được inject.**
+
+Khi bạn viết:
+```dart
+sealed class Shape {}
+class Circle extends Shape {}
+class Square extends Shape {}
+
+String describe(Shape s) => switch (s) {
+  Circle() => 'circle',
+  Square() => 'square',
+  // Thiếu Square → Compile Error ngay lập tức
+};
+```
+
+Dart Analyzer:
+1. Biết tất cả direct subtypes của `Shape` trong library (closed set)
+2. Tính: `{Circle, Square}` - `{Circle, Square}` = `{}` (empty) → exhaustive → OK
+3. Nếu thiếu 1 case: `{Circle, Square}` - `{Circle}` = `{Square}` → báo lỗi: *"The type 'Square' is not exhaustively matched"*
+
+**AOT output:** Không có thêm runtime type check hay fallback code. Compiler đã proven tại compile time rằng mọi case được handle → không cần defensive check ở runtime → performance tốt hơn.
+
+**So sánh Kotlin `sealed class`:** Cùng nguyên tắc — exhaustive `when` expression là compile-time proof, không phải runtime polymorphism.
+
+---
+
+#### Q5 [Middle] — "`(x: 1, y: 2) == (x: 1, y: 2)` cho kết quả gì? Compiler làm gì để có kết quả này?"
+
+**Trả lời chuẩn:**
+
+**Kết quả: `true`** — Records có **structural equality** được compiler tự động generate.
+
+Với class thông thường, `==` mặc định là **reference equality** (cùng object trong memory mới bằng nhau). Records ngược lại: compiler sinh `==` và `hashCode` dựa trên **từng field theo thứ tự**:
+
+```
+// Compiler sinh cho Record type (x: int, y: int):
+bool operator ==(Object other) =>
+  other is ({int x, int y}) &&   // cùng Record shape
+  other.x == this.x &&           // so sánh field x
+  other.y == this.y;             // so sánh field y
+
+int get hashCode => Object.hash(x, y);
+```
+
+```dart
+var r1 = (x: 1, y: 2);
+var r2 = (x: 1, y: 2);
+print(r1 == r2);      // true — structural equality
+print(identical(r1, r2)); // false — khác object trong memory
+
+// Nhưng named fields PHẢI match:
+var r3 = (a: 1, b: 2);
+print(r1 == r3);      // false — khác shape (x/y vs a/b)
+```
+
+**So sánh Kotlin `data class`:** Cũng compiler-generated `equals()` và `hashCode()`. Khác biệt: Record anonymous (không tên class), `data class` phải khai báo.
+
+---
+
+#### Q6 [Middle] — "`case Success(:final data)` trong switch expression desugars thành gì?"
+
+**Trả lời chuẩn:**
+
+Pattern matching là **syntactic sugar** — compiler transform thành chuỗi type check + field extraction:
+
+```dart
+// Bạn viết:
+Widget build(UiState<List<Product>> state) => switch (state) {
+  Loading()            => const CircularProgressIndicator(),
+  Success(:final data) => ProductList(products: data),
+  Failure(:final msg)  => ErrorWidget(message: msg),
+};
+```
+
+```dart
+// Compiler desugar thành (conceptually):
+Widget build(UiState<List<Product>> state) {
+  if (state is Loading) {
+    return const CircularProgressIndicator();
+  } else if (state is Success) {
+    final data = (state as Success).data;   // destructuring = field access after cast
+    return ProductList(products: data);
+  } else if (state is Failure) {
+    final msg = (state as Failure).msg;
+    return ErrorWidget(message: msg);
+  }
+  // sealed → compiler biết không có case nào khác → không cần else/default
+}
+```
+
+`:final data` là **destructuring shorthand**: `:field` = lấy field cùng tên từ matched object. Tương đương `(state as Success).data` nhưng ngắn gọn hơn.
+
+Guard clause `when` compile thành điều kiện bổ sung sau type check: `case Product(price: > 500000) when category == 'sale'` → `state is Product && state.price > 500000 && category == 'sale'`.
+
+---
+
+#### Q7 [Trace Code] — "Code sau có compile không? Nếu không, lỗi ở đâu?"
+
+```dart
+sealed class Shape {}
+class Circle extends Shape { final double radius; Circle(this.radius); }
+class Square extends Shape { final double side; Square(this.side); }
+
+double area(Shape s) => switch (s) {
+  Circle(:final radius) => 3.14 * radius * radius,
+  // Không có case Square
+};
+```
+
+**Đáp án: Compile Error**
+
+Lỗi: `The type 'Square' is not exhaustively matched by the switch cases.`
+
+**Giải thích:**
+1. `Shape` là `sealed` → Dart Analyzer biết: subtypes = `{Circle, Square}`
+2. Switch chỉ cover `{Circle}` → unhandled = `{Square}` → exhaustiveness proof fail
+3. Đây là **compile error**, không phải runtime exception
+
+**Cách fix — 3 lựa chọn:**
+```dart
+// Option 1: Thêm case còn thiếu (tốt nhất)
+Square(:final side) => side * side,
+
+// Option 2: Dùng wildcard (ẩn bug, không khuyến khích)
+_ => throw UnimplementedError('Shape not supported'),
+
+// Option 3: Dùng default (mất exhaustiveness benefit)
+default => 0.0,
+```

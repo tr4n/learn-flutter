@@ -420,16 +420,284 @@ class _MyState extends State<MyWidget> with SingleTickerProviderStateMixin {
 - Controller 2: checkmark appearance (forward, sau đó reverse)
 - Manage state transition: loading → success → loading
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa SingleTickerProviderStateMixin và TickerProviderStateMixin?"**
-   - Single: tối ưu cho đúng 1 controller, throw error nếu tạo nhiều hơn 1
-   - Multi: cho phép tạo nhiều controllers
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao AnimatedBuilder tốt hơn addListener + setState?"**
-   - AnimatedBuilder chỉ rebuild subtree của mình
-   - addListener + setState rebuild toàn bộ `build()` method
+---
 
-3. **"controller.forward() vs controller.repeat()?"**
-   - `forward()`: animate từ current → 1.0 (một lần, return Future)
-   - `repeat()`: loop mãi 0.0 → 1.0 → 0.0...
+#### Q1 [Junior] — "Sự khác biệt giữa `SingleTickerProviderStateMixin` và `TickerProviderStateMixin`?"
+
+**Trả lời chuẩn:**
+
+| | `SingleTickerProviderStateMixin` | `TickerProviderStateMixin` |
+|---|---|---|
+| **Tickers** | Đúng 1 | Không giới hạn |
+| **AnimationControllers** | 1 controller | Nhiều controllers |
+| **Debug assertion** | Throw nếu createTicker() gọi >1 lần | Không giới hạn |
+| **Performance** | Tốt hơn (simpler implementation) | Overhead nhỏ cho tracking |
+| **Use case** | Single animation | Tab animation, staggered |
+
+```dart
+// ✅ Single — 1 animation
+class _CardState extends State<Card>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  
+  @override void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: ...);
+    // Tạo controller thứ 2 → assertion error trong debug mode
+  }
+}
+
+// ✅ Multi — nhiều animations
+class _DashboardState extends State<Dashboard>
+    with TickerProviderStateMixin {
+  late AnimationController _headerController;
+  late AnimationController _contentController;
+  late AnimationController _footerController;
+}
+```
+
+---
+
+#### Q2 [Junior] — "`controller.forward()` vs `controller.repeat()` vs `controller.animateTo()`?"
+
+**Trả lời chuẩn:**
+
+| Method | Hành động | Return |
+|---|---|---|
+| `forward()` | current → 1.0 một lần | `TickerFuture` |
+| `reverse()` | current → 0.0 một lần | `TickerFuture` |
+| `repeat()` | Loop 0.0 → 1.0 → 0.0 mãi | `TickerFuture` |
+| `animateTo(target)` | current → target một lần | `TickerFuture` |
+| `stop()` | Dừng tại current value | `void` |
+| `reset()` | Reset về 0.0 (không animate) | `void` |
+
+```dart
+// forward — play animation
+_controller.forward(); // 0.0 → 1.0
+
+// reverse — play ngược
+_controller.reverse(); // 1.0 → 0.0
+
+// repeat với reverse — ping-pong
+_controller.repeat(reverse: true); // 0→1→0→1→... (infinite)
+
+// repeat trong range
+_controller.repeat(min: 0.3, max: 0.7); // loop trong 0.3 → 0.7
+
+// animateTo — đến giá trị cụ thể
+_controller.animateTo(0.5); // animate đến 50%
+
+// Await completion
+await _controller.forward().orCancel;
+// Tiếp tục sau khi animation xong (hoặc bị cancel)
+```
+
+---
+
+#### Q3 [Middle] — "Tại sao `AnimatedBuilder` tốt hơn `addListener + setState`?"
+
+**Trả lời chuẩn:**
+
+`addListener + setState` rebuild **toàn bộ `build()` method** của widget 60 lần/giây. `AnimatedBuilder` chỉ rebuild **phần trong `builder` callback**:
+
+```dart
+// ❌ addListener + setState — rebuild toàn bộ build()
+@override void initState() {
+  super.initState();
+  _controller.addListener(() => setState(() {})); // rebuild ALL mỗi frame!
+}
+
+@override Widget build(context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text('Title')), // không thay đổi → rebuild lãng phí!
+    body: Column(children: [
+      const ExpensiveWidget(),               // không thay đổi → rebuild lãng phí!
+      Transform.scale(scale: _controller.value, child: const Box()), // chỉ cái này cần
+    ]),
+  );
+}
+
+// ✅ AnimatedBuilder — rebuild nhỏ hơn
+@override Widget build(context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text('Title')),   // KHÔNG rebuild
+    body: Column(children: [
+      const ExpensiveWidget(),                      // KHÔNG rebuild
+      AnimatedBuilder(
+        animation: _controller,
+        child: const Box(), // static child — KHÔNG rebuild theo animation
+        builder: (ctx, child) => Transform.scale(
+          scale: _controller.value,
+          child: child, // reuse static child
+        ),
+      ), // chỉ AnimatedBuilder's subtree rebuild
+    ]),
+  );
+}
+```
+
+**Best: Transition widgets** — không rebuild Widget tree gì cả, chỉ paint layer:
+```dart
+FadeTransition(opacity: _controller, child: const Box())
+// → markNeedsPaint() thay vì rebuild → 0 widget rebuild
+```
+
+---
+
+#### Q4 [Senior] — "`AnimationController` tick mechanism: `Ticker.tick()` được gọi bởi `SchedulerBinding` thế nào?"
+
+**Trả lời chuẩn:**
+
+Mỗi vsync frame, `SchedulerBinding` invoke tất cả registered frame callbacks:
+
+```
+Display hardware → VSync signal (60Hz)
+  ↓
+SchedulerBinding._handleBeginFrame(Duration timeStamp)
+  ↓
+invoke tất cả transient frame callbacks (Ticker callbacks)
+  ↓
+Ticker._tick(Duration timeStamp)
+  ↓
+elapsed = timeStamp - _startTime
+AnimationController._tick(Duration elapsed)
+  ↓
+value = _simulation.x(elapsed.inMicroseconds / 1e6)
+// _simulation là LinearSimulation, CurveTween simulation...
+  ↓
+notifyListeners()  ← AnimatedBuilder, FadeTransition, etc. nhận callback
+  ↓
+AnimatedBuilder.builder() được gọi lại → rebuild subtree
+FadeTransition: markNeedsPaint() → paint layer mới
+```
+
+**Duration precision:** `timeStamp` có precision microsecond (µs) — đủ chính xác cho smooth 60fps. `_simulation.x(t)` là hàm position theo thời gian, đảm bảo animation smooth kể cả khi frame drop.
+
+---
+
+#### Q5 [Middle] — "`CurvedAnimation` vs `Tween.animate()` — compose thế nào? Thứ tự quan trọng?"
+
+**Trả lời chuẩn:**
+
+```dart
+// Hai cách compose Animation:
+// controller: 0.0 → 1.0 (linear)
+
+// Cách 1: CurvedAnimation → Tween
+final curved = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+final animation = Tween<double>(begin: 0, end: 300).animate(curved);
+// Result: 0→300 với easeOut curve
+
+// Cách 2: Tween.animate(controller) rồi CurvedAnimation (ít phổ biến)
+final tweened = Tween<double>(begin: 0, end: 300).animate(_controller);
+// tweened là 0→300 linear (không có curve)
+
+// Kết hợp đúng:
+final animation = Tween<double>(begin: 0, end: 300).animate(
+  CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+);
+// Tương đương Cách 1
+```
+
+**Thứ tự:** `Tween` luôn wrap `CurvedAnimation` — `CurvedAnimation.value` là 0..1 sau curve, `Tween.evaluate()` map 0..1 → begin..end.
+
+```
+controller.value = 0.5 (linear)
+  ↓ CurvedAnimation (easeOut)
+  curved.value = 0.75 (faster at start, slower at end)
+  ↓ Tween(0, 300)
+  animation.value = 0 + (300-0) * 0.75 = 225
+```
+
+---
+
+#### Q6 [Senior] — "`AnimationController.drive(Tween)` vs `Tween.animate(controller)` — cùng kết quả không?"
+
+**Trả lời chuẩn:**
+
+Về kết quả: **Có, cùng** — `controller.drive(tween)` là convenience method gọi `tween.animate(controller)` internally.
+
+```dart
+// Cả hai cho cùng kết quả:
+final a = controller.drive(Tween<double>(begin: 0, end: 100));
+final b = Tween<double>(begin: 0, end: 100).animate(controller);
+// a và b là cùng loại Animation<double>
+
+// Nhưng drive() cho phép chain:
+final animation = controller
+    .drive(CurveTween(curve: Curves.easeOut))     // apply curve
+    .drive(Tween<double>(begin: 0, end: 300));     // map to range
+// Đọc từ phải sang trái: 0..300, với easeOut curve, driven by controller
+```
+
+**Khi nào dùng `drive()`:** Chaining nhiều transformations:
+```dart
+final slideAnimation = controller
+    .drive(CurveTween(curve: Curves.easeInOut))
+    .drive(Tween<Offset>(begin: const Offset(-1, 0), end: Offset.zero));
+
+SlideTransition(position: slideAnimation, child: const MyWidget())
+```
+
+---
+
+#### Q7 [Trace Code] — "`controller.reverse()` từ value 0.5: animation kết thúc ở đâu? Duration là bao nhiêu?"
+
+```dart
+class _AnimState extends State<AnimWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000), // 1 second forward
+    );
+    _controller.value = 0.5; // bắt đầu ở giữa
+  }
+
+  Future<void> animate() async {
+    print('Start: ${_controller.value}'); // 0.5
+    await _controller.reverse();
+    print('End: ${_controller.value}');   // ?
+  }
+}
+```
+
+**Khi gọi `_controller.reverse()`:**
+
+`reverse()` animate từ `current value` → `lowerBound` (mặc định = 0.0).
+
+**Duration thực tế:** Không phải full 1000ms, mà **proportional theo remaining distance**:
+- Current value: 0.5
+- Target: 0.0 (lowerBound)
+- Distance remaining: 0.5 (50% of total)
+- Duration = `reverseDuration ?? duration` × remaining fraction
+- `reverseDuration` không set → dùng `duration` = 1000ms
+- Actual duration = 1000ms × 0.5 = **500ms**
+
+**Output:**
+```
+Start: 0.5
+[500ms sau]
+End: 0.0
+```
+
+**Nếu dùng `_controller.animateTo(0.0)`:**
+- Cũng animate 0.5 → 0.0
+- Duration cũng proportional = 500ms (dùng default duration)
+
+**Nếu muốn reverse với full duration:**
+```dart
+_controller.value = 0.5;
+_controller.reverse(); // 500ms
+// vs
+_controller.reset(); // instant reset về 0.0
+_controller.forward(); // từ 0.0, full 1000ms
+```

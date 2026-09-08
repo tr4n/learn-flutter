@@ -359,16 +359,291 @@ AnimatedContainer(duration: const Duration(milliseconds: 2000), ...)
 4. Scale: bounce effect (sử dụng `TweenAnimationBuilder` hoặc `AnimatedScale`)
 5. Counter animate khi số thay đổi (`AnimatedSwitcher`)
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa Implicit và Explicit animation?"**
-   - Implicit: set value → Flutter animate tự động, không cần controller
-   - Explicit: bạn control timeline qua AnimationController
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao cần Key trong AnimatedSwitcher?"**
-   - AnimatedSwitcher detect "widget mới" bằng key comparison
-   - Không có key: cùng runtimeType → không animate
+---
 
-3. **"Material Motion duration guidelines là gì?"**
-   - Nhỏ: 100-200ms, Standard: 200-400ms, Emphasize: 300-500ms
-   - Curve: `easeInOutCubicEmphasized` cho Material 3
+#### Q1 [Junior] — "Sự khác biệt giữa Implicit và Explicit animation?"
+
+**Trả lời chuẩn:**
+
+| | Implicit Animation | Explicit Animation |
+|---|---|---|
+| **Controller** | Không cần | Cần `AnimationController` |
+| **Control** | Flutter tự animate khi value thay đổi | Bạn kiểm soát timing, repeat, reverse |
+| **Code** | Ít code hơn | Nhiều code hơn |
+| **Flexibility** | Thấp — chỉ A→B | Cao — sequence, stagger, loop |
+| **Examples** | `AnimatedContainer`, `AnimatedOpacity` | `FadeTransition`, `SlideTransition` |
+
+```dart
+// Implicit — set value, Flutter animate tự động
+AnimatedContainer(
+  duration: const Duration(milliseconds: 300),
+  curve: Curves.easeOut,
+  width: _isExpanded ? 200.0 : 100.0, // chỉ cần thay đổi value
+  color: _isSelected ? Colors.blue : Colors.grey,
+  // Flutter tự tween từ giá trị cũ sang mới
+)
+
+// Explicit — bạn control hoàn toàn
+AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+FadeTransition(
+  opacity: _controller, // bạn gọi _controller.forward() / .reverse()
+  child: const MyWidget(),
+)
+```
+
+---
+
+#### Q2 [Junior] — "Tại sao cần `Key` trong `AnimatedSwitcher`? Điều gì xảy ra nếu không có?"
+
+**Trả lời chuẩn:**
+
+`AnimatedSwitcher` detect "new widget" bằng cách so sánh `Key` và `runtimeType`. Nếu cùng runtimeType và không có key (hoặc cùng key) → Flutter cho rằng đây là cùng widget được update → **không animate**.
+
+```dart
+// ❌ Không animate — cùng runtimeType (Text) và không có key
+AnimatedSwitcher(
+  duration: const Duration(milliseconds: 300),
+  child: Text('$_counter'), // runtimeType = Text, không có key
+)
+// Khi _counter thay đổi: vẫn là Text → không switch → không animate!
+
+// ✅ Animate — key khác nhau → AnimatedSwitcher detect widget mới
+AnimatedSwitcher(
+  duration: const Duration(milliseconds: 300),
+  child: Text(
+    '$_counter',
+    key: ValueKey<int>(_counter), // ← key thay đổi theo value
+  ),
+)
+// Khi _counter = 1 → 2: key('1') ≠ key('2') → widget mới → animate!
+```
+
+**Cơ chế:** AnimatedSwitcher so sánh `Widget.canUpdate(old, new)`. Nếu false (khác key/type) → animate out old, animate in new.
+
+---
+
+#### Q3 [Middle] — "Material Motion duration guidelines là gì? Curve nào cho Material 3?"
+
+**Trả lời chuẩn:**
+
+**Material Design 3 duration guidelines:**
+
+| Category | Duration | Use case |
+|---|---|---|
+| **Short 1** | 50ms | UI feedback (hover, press) |
+| **Short 2** | 100ms | Checkbox, radio state change |
+| **Short 3** | 150ms | Badge, chip, small element |
+| **Short 4** | 200ms | FAB → extended FAB |
+| **Medium 1** | 250ms | Drawer open, menu |
+| **Medium 2** | 300ms | Bottom sheet, dialog |
+| **Medium 3** | 350ms | Navigation bar, rail |
+| **Medium 4** | 400ms | Search bar |
+| **Long 1** | 450ms | Navigation drawer (full) |
+
+**Curves Material 3:**
+```dart
+// Emphasized — large elements, significant transitions
+Curves.easeInOutCubicEmphasized // = Cubic(0.2, 0, 0, 1.0)
+
+// Standard — default cho hầu hết animations
+Curves.easeInOut
+
+// Decelerate — elements entering screen
+Curves.decelerate // = easeOut
+
+// Accelerate — elements leaving screen
+Curves.easeIn
+```
+
+---
+
+#### Q4 [Senior] — "`ImplicitlyAnimatedWidget` dùng `AnimationController` nội bộ thế nào? Tween lerp hoạt động?"
+
+**Trả lời chuẩn:**
+
+`ImplicitlyAnimatedWidget` (base class của `AnimatedContainer`, `AnimatedOpacity`, v.v.) extend `StatefulWidget` và implement:
+
+```dart
+// Simplified AnimatedContainer internals
+class _AnimatedContainerState extends AnimatedWidgetBaseState<AnimatedContainer> {
+  // AnimatedWidgetBaseState extend ImplicitlyAnimatedWidgetState
+  // → tự tạo AnimationController + SingleTickerProviderStateMixin
+
+  Tween<double>? _width;
+  Tween<Color?>? _color;
+  
+  @override
+  void forEachTween(TweenVisitor<dynamic> visitor) {
+    // Mỗi animated property có một Tween
+    _width = visitor(
+      _width,           // tween hiện tại
+      widget.width,     // target value
+      (value) => Tween<double>(begin: value as double),
+    ) as Tween<double>?;
+    
+    _color = visitor(
+      _color,
+      widget.color,
+      (value) => ColorTween(begin: value as Color),
+    ) as Tween<Color?>?;
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    final animation = this.animation; // từ AnimationController
+    return Container(
+      width: _width?.evaluate(animation),   // lerp từ old → new
+      color: _color?.evaluate(animation),   // lerp color
+    );
+  }
+}
+```
+
+**`Tween.lerp(t)` mechanism:**
+```dart
+// Khi didUpdateWidget với width mới:
+// Old width = 100, new width = 200
+// Tween: begin=100, end=200
+// animation.value đi từ 0.0 → 1.0 (theo curve)
+// evaluate(animation) = begin + (end - begin) * animation.value
+//                     = 100 + (200-100) * 0.5 = 150 (ở giữa animation)
+```
+
+---
+
+#### Q5 [Middle] — "`AnimatedSwitcher` detect 'new widget' bằng algorithm nào?"
+
+**Trả lời chuẩn:**
+
+`AnimatedSwitcher` dùng `Widget.canUpdate(oldChild, newChild)`:
+
+```dart
+// AnimatedSwitcher source (simplified)
+void didUpdateWidget(AnimatedSwitcher oldWidget) {
+  if (widget.child != null && Widget.canUpdate(widget.child!, _currentEntry!.widgetChild)) {
+    // Cùng runtimeType + cùng key → update widget hiện tại, KHÔNG animate
+    _updateTransitionForEntry(_currentEntry!, widget.child!);
+  } else {
+    // Khác runtimeType HOẶC khác key → widget mới → animate
+    _addEntryForNewChild(animate: true);
+  }
+}
+```
+
+**Behavior:**
+```dart
+// Scenario 1: Text → Text (cùng type, không key)
+child: Text('A') → Text('B')
+// canUpdate(Text(A), Text(B)) = true (same type, both no key)
+// → KHÔNG animate, chỉ update text
+
+// Scenario 2: Text(key: 'a') → Text(key: 'b')
+child: Text('A', key: Key('a')) → Text('B', key: Key('b'))
+// canUpdate = false (khác key)
+// → ANIMATE: A slide out, B slide in
+
+// Scenario 3: Text → Icon (khác type)
+child: Text('A') → Icon(Icons.star)
+// canUpdate = false (khác runtimeType)
+// → ANIMATE: Text fade out, Icon fade in
+```
+
+---
+
+#### Q6 [Middle] — "`TweenAnimationBuilder` vs `AnimatedContainer` — khi nào nên dùng `TweenAnimationBuilder`?"
+
+**Trả lời chuẩn:**
+
+| | `AnimatedContainer` | `TweenAnimationBuilder<T>` |
+|---|---|---|
+| **Properties** | Fixed (color, width, height...) | Bất kỳ type T |
+| **Custom type** | Không | Có — `Tween<MyType>` |
+| **On complete** | Không | Có — `onEnd` callback |
+| **Control flow** | Chỉ A→B | A→B với onEnd trigger |
+
+```dart
+// AnimatedContainer — đủ cho properties có sẵn
+AnimatedContainer(
+  duration: const Duration(milliseconds: 300),
+  width: _width,
+  color: _color,
+)
+
+// TweenAnimationBuilder — khi cần animate custom type hoặc onEnd
+TweenAnimationBuilder<double>(
+  tween: Tween<double>(begin: 0, end: _angle),
+  duration: const Duration(milliseconds: 500),
+  curve: Curves.elasticOut,
+  onEnd: () => _onAnimationComplete(), // callback khi animation xong
+  builder: (ctx, value, child) {
+    return Transform.rotate(
+      angle: value,
+      child: child,
+    );
+  },
+  child: const Icon(Icons.star), // static child (không rebuild theo animation)
+)
+
+// Custom tween type
+TweenAnimationBuilder<Color?>(
+  tween: ColorTween(begin: Colors.red, end: Colors.blue),
+  duration: const Duration(seconds: 1),
+  builder: (ctx, color, _) => Container(color: color),
+)
+```
+
+---
+
+#### Q7 [Trace Code] — "`AnimatedOpacity` với duration 300ms: khi nào animation bắt đầu?"
+
+```dart
+class FadeWidget extends StatefulWidget {
+  const FadeWidget({super.key});
+  @override State<FadeWidget> createState() => _FadeWidgetState();
+}
+
+class _FadeWidgetState extends State<FadeWidget> {
+  double _opacity = 1.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        AnimatedOpacity(
+          opacity: _opacity,
+          duration: const Duration(milliseconds: 300),
+          child: Container(width: 100, height: 100, color: Colors.blue),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            print('Button pressed at: ${DateTime.now().millisecondsSinceEpoch}');
+            setState(() => _opacity = 0.0);
+          },
+          child: const Text('Fade Out'),
+        ),
+      ],
+    );
+  }
+}
+```
+
+**Khi button được nhấn:**
+
+1. `setState(() => _opacity = 0.0)` → mark widget dirty
+2. Frame boundary → `build()` được gọi → `AnimatedOpacity(opacity: 0.0)` widget mới
+3. `AnimatedOpacity` detect: `opacity` thay đổi từ 1.0 → 0.0 (trong `didUpdateWidget`)
+4. Tween được set: `begin = 1.0, end = 0.0`
+5. `AnimationController.forward()` được gọi → animation bắt đầu **trong frame tiếp theo**
+
+**Timeline:**
+```
+t=0ms:   Button pressed → setState()
+t=~16ms: Build() → AnimatedOpacity detect change → animation START
+t=~316ms: Animation COMPLETE → opacity = 0.0
+```
+
+**Animation bắt đầu KHÔNG phải ngay khi button pressed** mà trong frame tiếp theo sau `build()`. Delay = 1 frame (~16ms ở 60fps). Với `setState()` synchronous, delay này rất nhỏ và không nhận thấy được bởi user.

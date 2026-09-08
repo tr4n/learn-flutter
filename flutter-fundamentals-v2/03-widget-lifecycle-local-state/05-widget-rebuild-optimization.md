@@ -455,21 +455,247 @@ Bật `debugPrintRebuildDirtyWidgets = true`.
 4. Dùng `AutomaticKeepAlive` cho product list per tab
 5. Đo lại → target <5 rebuild cho mỗi action
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Flutter tối ưu hóa rebuild như thế nào?"**
-   - `const` widget → identity equality → skip build
-   - Element reuse khi `canUpdate()` = true
-   - `RepaintBoundary` → isolate paint layer
-   - Dirty element chỉ rebuild subtree của nó, không phải toàn app
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Khi nào dùng `RepaintBoundary`?"**
-   - Widget có animation/transition riêng biệt
-   - Widget update thường xuyên (timer, realtime data)
-   - Heavy custom painter
-   - Không dùng tràn lan — mỗi boundary tạo layer overhead
+---
 
-3. **"`AutomaticKeepAliveClientMixin` hoạt động như thế nào?"**
-   - Override `wantKeepAlive` → return true để giữ Element sống
-   - Flutter TabBarView/PageView check `wantKeepAlive` trước khi unmount
-   - `super.build(context)` phải gọi để mixin notify parent giữ alive
+#### Q1 [Junior] — "Flutter tối ưu hóa rebuild như thế nào? Liệt kê các cơ chế chính."
+
+**Trả lời chuẩn:**
+
+Flutter có **4 cơ chế tối ưu rebuild** chính:
+
+| Cơ chế | Cách hoạt động | Khi áp dụng |
+|---|---|---|
+| **`const` widget** | `identical(old, new)` = true → skip toàn bộ subtree | Widget không có dynamic data |
+| **Element reuse** | `canUpdate()` = true → `update()` thay vì `createElement()` | Luôn xảy ra khi cùng type+key |
+| **Dirty marking** | Chỉ dirty elements mới rebuild, không phải toàn tree | Tự động qua `setState()` |
+| **`RepaintBoundary`** | Cô lập paint scope → layer riêng được cache | Widget animate/update thường xuyên |
+
+**Quan trọng nhất cho developer:** `const` và `RepaintBoundary`. Element reuse và dirty marking là tự động — framework làm cho bạn.
+
+---
+
+#### Q2 [Junior] — "Khi nào nên dùng `RepaintBoundary`? Khi nào không nên?"
+
+**Trả lời chuẩn:**
+
+**Nên dùng khi:**
+- Widget chứa animation chạy liên tục (animation clock, loading spinner)
+- Widget update với tần suất cao (realtime chart, video frame)
+- Widget có `CustomPainter` heavy và thay đổi độc lập với phần còn lại
+
+```dart
+// Widget đếm thời gian — update mỗi giây
+RepaintBoundary(
+  child: TimerDisplay(), // chỉ layer này repaint mỗi giây
+)
+// Phần còn lại của screen không bị ảnh hưởng
+```
+
+**Không nên dùng khi:**
+- Widget ít thay đổi — overhead của layer cao hơn lợi ích
+- Mỗi `RepaintBoundary` tốn memory (GPU texture)
+- Đặt quá nhiều boundary → fragmented layers → composite overhead
+
+**Nguyên tắc:** Flutter DevTools → Repaint Rainbow sẽ show vùng nào đang repaint. Chỉ thêm `RepaintBoundary` khi thấy unnecessary repaint qua profiling.
+
+---
+
+#### Q3 [Middle] — "`const` widget trong list: mỗi item cần `const` hay cả `ListView` cần `const`?"
+
+**Trả lời chuẩn:**
+
+**`ListView` không thể `const`** vì nó nhận `children` là List — list items thường là runtime data. Nhưng **từng item có thể `const`** nếu item không có dynamic data:
+
+```dart
+// ❌ Toàn bộ ListView không const được (children từ model)
+ListView(
+  children: items.map((item) => ListTile(title: Text(item.name))).toList(),
+)
+
+// ✅ Items static → const từng item
+ListView(
+  children: const [
+    ListTile(title: Text('Settings')), // const
+    ListTile(title: Text('Profile')),  // const
+    Divider(),                         // const
+  ],
+)
+
+// ✅ Mix: item static → const, item dynamic → không
+ListView(
+  children: [
+    const ListTile(title: Text('Static')), // const
+    ListTile(title: Text(dynamicTitle)),   // không const
+  ],
+)
+```
+
+**Với `ListView.builder`:** Builder function chạy mỗi khi item được scrolled into view. Nếu item hoàn toàn static, có thể cache widget instance thay vì dùng `const` trong builder.
+
+---
+
+#### Q4 [Senior] — "`RepaintBoundary` tạo layer riêng thế nào? Layer tree vs Widget tree?"
+
+**Trả lời chuẩn:**
+
+Flutter duy trì **2 cây riêng biệt** cho rendering:
+
+```
+Widget Tree         Element Tree        RenderObject Tree       Layer Tree
+(blueprint)         (lifecycle)         (layout/paint logic)    (GPU composite)
+
+RepaintBoundary  →  RenderRepaintBoundary                    → OffsetLayer (composite layer)
+  └─ Column      →  RenderFlex         → [paint vào layer]   → PictureLayer
+      └─ Text     → RenderParagraph    → [paint vào layer]   → (same PictureLayer)
+```
+
+Khi `RepaintBoundary` tạo `OffsetLayer` (composite layer), nội dung bên trong được render vào một `Picture` riêng. Flutter GPU compositor nhận các layer này và composite chúng. Nếu nội dung của `OffsetLayer` không thay đổi, Flutter **reuse cached texture** từ GPU — không cần repaint.
+
+```
+Frame N:   RepaintBoundary content thay đổi → repaint PictureLayer → upload texture mới lên GPU
+Frame N+1: Content không thay đổi → reuse GPU texture → cost ≈ 0
+```
+
+**Overhead:** Mỗi composite layer cần một GPU texture allocation. Nhiều layer → nhiều texture → VRAM pressure. Cân nhắc tradeoff repaint cost vs VRAM cost.
+
+---
+
+#### Q5 [Middle] — "Cách đo rebuild thực tế trong Flutter? Tools nào hỗ trợ?"
+
+**Trả lời chuẩn:**
+
+**1. Flutter DevTools — Performance tab:**
+```
+flutter run --profile
+# Mở DevTools → Performance → Record
+# Xem "UI thread" → tìm "build" events
+```
+
+**2. Debug flags (chỉ debug mode):**
+```dart
+// In ra mọi widget rebuild khi dirty
+import 'package:flutter/rendering.dart';
+debugPrintRebuildDirtyWidgets = true;
+
+// Highlight vùng repaint (Flutter DevTools tích hợp)
+// Hoặc: debugRepaintRainbowEnabled = true;
+```
+
+**3. Widget Inspector → Highlight Repaints:**
+- Flutter DevTools → Widget Inspector → "Highlight Repaints"
+- Vùng đang repaint sẽ được highlighted với màu random
+
+**4. Custom profiling:**
+```dart
+class TrackedWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    debugPrint('TrackedWidget build: ${DateTime.now()}');
+    return const Text('Hello');
+  }
+}
+```
+
+---
+
+#### Q6 [Middle] — "`AutomaticKeepAliveClientMixin` hoạt động thế nào? Khi nào cần `super.build(context)`?"
+
+**Trả lời chuẩn:**
+
+`AutomaticKeepAliveClientMixin` giữ State sống khi widget bị scrolled off viewport trong `PageView`, `TabBarView`, hoặc `ListView` với keepAlive.
+
+```dart
+class _MyTabState extends State<MyTab>
+    with AutomaticKeepAliveClientMixin {
+  
+  @override
+  bool get wantKeepAlive => true; // ← signal: giữ Element sống
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // ← PHẢI gọi — mixin dùng để notify parent
+    return const Text('Tab content');
+  }
+}
+```
+
+**Tại sao phải gọi `super.build(context)`?**
+
+`AutomaticKeepAliveClientMixin.build()` gọi `KeepAliveNotification` để notify `PageView`/`TabBarView` rằng widget này muốn sống. Nếu không gọi `super.build()`, notification không được gửi → `wantKeepAlive` bị ignore → State vẫn bị dispose khi scroll off.
+
+**Cơ chế:** `PageView` implement `AutomaticKeepAlive` wrapper — nó listen `KeepAliveNotification` và quyết định có unmount child State hay không.
+
+---
+
+#### Q7 [Trace Code] — "Dự đoán widget nào rebuild khi `ChangeNotifier.notifyListeners()` được gọi trong Provider tree"
+
+```dart
+// Counter model
+class CounterModel extends ChangeNotifier {
+  int value = 0;
+  void increment() { value++; notifyListeners(); }
+}
+
+// Widget tree
+class App extends StatelessWidget {
+  @override
+  Widget build(context) {
+    return ChangeNotifierProvider(
+      create: (_) => CounterModel(),
+      child: const Column(
+        children: [
+          CounterText(),   // (A) dùng context.watch
+          StaticWidget(),  // (B) không dùng provider
+          CounterButton(), // (C) dùng context.read (không watch)
+        ],
+      ),
+    );
+  }
+}
+
+class CounterText extends StatelessWidget {
+  const CounterText({super.key});
+  @override
+  Widget build(context) {
+    print('CounterText build');
+    final count = context.watch<CounterModel>().value; // register dependency
+    return Text('$count');
+  }
+}
+
+class StaticWidget extends StatelessWidget {
+  const StaticWidget({super.key});
+  @override
+  Widget build(context) {
+    print('StaticWidget build');
+    return const Text('Static');
+  }
+}
+
+class CounterButton extends StatelessWidget {
+  const CounterButton({super.key});
+  @override
+  Widget build(context) {
+    print('CounterButton build');
+    return ElevatedButton(
+      onPressed: () => context.read<CounterModel>().increment(), // không watch
+      child: const Text('Increment'),
+    );
+  }
+}
+```
+
+**Khi nhấn button, output là:**
+
+```
+CounterText build
+```
+
+**Giải thích:**
+- **(A) `CounterText`** dùng `context.watch<CounterModel>()` → `dependOnInheritedWidgetOfExactType` → đăng ký dependency. Khi `notifyListeners()` → `ChangeNotifierProvider` gọi `setState()` → `InheritedWidget.updateShouldNotify()` = true → chỉ dependents rebuild → **CounterText.build() được gọi**
+- **(B) `StaticWidget`** là `const` và không phụ thuộc provider → **KHÔNG rebuild**
+- **(C) `CounterButton`** dùng `context.read()` → `getElementForInheritedWidgetOfExactType` (không đăng ký dependency) → **KHÔNG rebuild**

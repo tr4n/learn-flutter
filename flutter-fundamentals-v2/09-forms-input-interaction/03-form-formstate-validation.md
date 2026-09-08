@@ -317,16 +317,308 @@ Future<void> _submit() async {
 - Giữ data giữa steps trong parent State
 - "Confirm Password" validation: so sánh với Password field
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa TextFormField và TextField?"**
-   - `TextField`: standalone, không tích hợp Form
-   - `TextFormField`: integrate với `Form`, hỗ trợ validator/onSaved
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"AutovalidateMode.onUserInteraction vs disabled: nên dùng cái nào?"**
-   - `onUserInteraction`: UX tốt — không show lỗi ngay khi load, validate sau interact
-   - `disabled`: validate khi submit — ít aggressive hơn
+---
 
-3. **"Làm sao validate confirm password phải match password?"**
-   - Giữ reference đến `TextEditingController` của password field
-   - `validator: (value) => value != _passwordController.text ? 'Không khớp' : null`
+#### Q1 [Junior] — "Sự khác biệt giữa `Form + TextFormField` và `TextField` đơn thuần?"
+
+**Trả lời chuẩn:**
+
+| | `Form + TextFormField` | `TextField` standalone |
+|---|---|---|
+| **Validation** | Built-in (`validator` callback) | Phải tự implement |
+| **Grouping** | `Form` quản lý tất cả fields | Riêng lẻ |
+| **Save** | `formKey.currentState?.save()` | Phải đọc từng controller |
+| **Reset** | `formKey.currentState?.reset()` | Phải set từng controller |
+| **`onSaved`** | Có — `FormState.save()` gọi hết | Không |
+| **Use case** | Complex forms (login, registration) | Simple single input |
+
+```dart
+// Form + TextFormField — recommended cho multi-field forms
+final _formKey = GlobalKey<FormState>();
+String? _email, _password;
+
+Form(
+  key: _formKey,
+  autovalidateMode: AutovalidateMode.onUserInteraction,
+  child: Column(children: [
+    TextFormField(
+      decoration: const InputDecoration(labelText: 'Email'),
+      validator: (v) => v?.contains('@') == true ? null : 'Invalid email',
+      onSaved: (v) => _email = v,
+    ),
+    TextFormField(
+      obscureText: true,
+      validator: (v) => (v?.length ?? 0) >= 8 ? null : 'Min 8 chars',
+      onSaved: (v) => _password = v,
+    ),
+    ElevatedButton(
+      onPressed: () {
+        if (_formKey.currentState?.validate() == true) {
+          _formKey.currentState?.save();
+          login(_email!, _password!);
+        }
+      },
+      child: const Text('Login'),
+    ),
+  ]),
+)
+```
+
+---
+
+#### Q2 [Junior] — "`AutovalidateMode.always` vs `onUserInteraction` vs `disabled`?"
+
+**Trả lời chuẩn:**
+
+| Mode | Validate khi | UX |
+|---|---|---|
+| `disabled` | Chỉ khi gọi `validate()` thủ công | Không show error cho đến khi submit |
+| `onUserInteraction` | Sau khi user bắt đầu interact (type, tap) | Validation ngay lập tức sau touch |
+| `always` | Mọi lúc, kể cả khi chưa touch | Error hiện ngay khi load — phiền |
+
+```dart
+// disabled (mặc định nếu không set trên Form)
+Form(autovalidateMode: AutovalidateMode.disabled)
+
+// onUserInteraction — KHUYẾN NGHỊ cho form UX
+Form(autovalidateMode: AutovalidateMode.onUserInteraction)
+
+// always — show error ngay lập tức (kể cả chưa touch)
+Form(autovalidateMode: AutovalidateMode.always)
+```
+
+**Pattern thường gặp:** `Form(autovalidateMode: disabled)` + gọi `validate()` khi submit. Kết hợp với `onUserInteraction` trên từng `TextFormField` riêng lẻ.
+
+---
+
+#### Q3 [Middle] — "`formKey.currentState?.save()` làm gì? Thứ tự gọi `validate()` và `save()`?"
+
+**Trả lời chuẩn:**
+
+`FormState.save()` **iterate toàn bộ registered `FormField`** trong Form và gọi `onSaved` callback trên mỗi field:
+
+```dart
+// FormState.save() — Flutter source (simplified)
+void save() {
+  for (final FormFieldState<dynamic> field in _fields) {
+    field.save(); // gọi onSaved(field.value)
+  }
+}
+```
+
+**Thứ tự bắt buộc: `validate()` TRƯỚC `save()`:**
+
+```dart
+// ✅ Đúng thứ tự
+void _submit() {
+  if (_formKey.currentState!.validate()) {
+    // validate() = true → tất cả fields hợp lệ
+    _formKey.currentState!.save();
+    // save() collect tất cả values vào variables
+    doLogin(_email!, _password!);
+  }
+}
+
+// ❌ Sai — save trước validate → có thể save invalid data
+void _badSubmit() {
+  _formKey.currentState!.save();
+  if (_formKey.currentState!.validate()) {
+    doLogin(_email!, _password!); // có thể _email là invalid!
+  }
+}
+```
+
+---
+
+#### Q4 [Senior] — "`Form` và `FormField` communicate thế nào? Registration mechanism?"
+
+**Trả lời chuẩn:**
+
+`Form` widget là `InheritedWidget` ancestor — `FormField` register với `Form` thông qua `FormState`:
+
+```dart
+// FormField.initState() — tự động register
+@override
+void initState() {
+  super.initState();
+  _register();
+}
+
+void _register() {
+  final formState = Form.maybeOf(context) as _FormState?;
+  formState?._register(this); // thêm vào _fields Set
+}
+
+// FormState — giữ danh sách tất cả fields
+class _FormState extends State<Form> {
+  final Set<FormFieldState<dynamic>> _fields = {};
+  
+  bool validate() {
+    bool isValid = true;
+    for (final field in _fields) {
+      isValid = field.validate() && isValid; // gọi validator của từng field
+    }
+    return isValid;
+  }
+}
+```
+
+**Tại sao dùng `InheritedWidget`:** `FormField` không cần truyền `FormState` qua constructor — nó tìm tự động qua `Form.maybeOf(context)`. Điều này cho phép form fields ở bất kỳ depth nào trong tree.
+
+---
+
+#### Q5 [Middle] — "Custom `FormField<T>` cho non-text input (e.g., date picker, rating)?"
+
+**Trả lời chuẩn:**
+
+`FormField<T>` cho phép integrate bất kỳ input widget nào với Form validation system:
+
+```dart
+// Custom FormField cho date picker
+class DatePickerFormField extends FormField<DateTime> {
+  DatePickerFormField({
+    super.key,
+    DateTime? initialValue,
+    FormFieldValidator<DateTime>? validator,
+    FormFieldSetter<DateTime>? onSaved,
+  }) : super(
+    initialValue: initialValue,
+    validator: validator,
+    onSaved: onSaved,
+    builder: (FormFieldState<DateTime> state) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: state.context,
+                initialDate: state.value ?? DateTime.now(),
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2030),
+              );
+              if (picked != null) state.didChange(picked);
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(errorText: state.errorText),
+              child: Text(state.value?.toString() ?? 'Select date'),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+// Dùng trong Form
+DatePickerFormField(
+  validator: (date) => date == null ? 'Please select date' : null,
+  onSaved: (date) => _selectedDate = date,
+)
+```
+
+---
+
+#### Q6 [Middle] — "`FormField.validator` callback: khi nào được gọi? Return null vs non-null?"
+
+**Trả lời chuẩn:**
+
+`validator` được gọi khi:
+- `FormState.validate()` được gọi thủ công
+- `AutovalidateMode.onUserInteraction` → sau khi user bắt đầu interact
+- `AutovalidateMode.always` → mỗi rebuild
+
+**Return value:**
+- `null` → **valid** — không hiện error
+- `String message` → **invalid** — hiện error message bên dưới field
+
+```dart
+TextFormField(
+  validator: (value) {
+    if (value == null || value.isEmpty) return 'Field cannot be empty';
+    if (value.length < 3) return 'Minimum 3 characters';
+    if (!RegExp(r'^[a-zA-Z]+$').hasMatch(value)) return 'Letters only';
+    return null; // ← valid!
+  },
+)
+
+// Cross-field validation (e.g., confirm password)
+TextFormField(
+  validator: (value) {
+    if (value != _passwordController.text) {
+      return 'Passwords do not match';
+    }
+    return null;
+  },
+)
+```
+
+**Lưu ý:** `validate()` **luôn gọi tất cả validators** (không short-circuit) để tất cả error messages hiện cùng lúc.
+
+---
+
+#### Q7 [Trace Code] — "`formKey.currentState?.validate()` trả về true/false — điều kiện nào?"
+
+```dart
+final _formKey = GlobalKey<FormState>();
+String? _name;
+String? _email;
+
+Form(
+  key: _formKey,
+  child: Column(children: [
+    TextFormField(
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Required';
+        return null;
+      },
+      onSaved: (v) => _name = v,
+    ),
+    TextFormField(
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Required';
+        if (!v.contains('@')) return 'Invalid email';
+        return null;
+      },
+      onSaved: (v) => _email = v,
+    ),
+    ElevatedButton(
+      onPressed: () {
+        final isValid = _formKey.currentState?.validate() ?? false;
+        print('Form valid: $isValid');
+        if (isValid) {
+          _formKey.currentState?.save();
+          print('Name: $_name, Email: $_email');
+        }
+      },
+      child: const Text('Submit'),
+    ),
+  ]),
+)
+```
+
+**Scenario A (form rỗng):**
+```
+Form valid: false
+// name: 'Required' error, email: 'Required' error
+// validate() gọi cả 2 validators (không short-circuit)
+```
+
+**Scenario B (Name='John', Email='notanemail'):**
+```
+Form valid: false
+// name: null (valid), email: 'Invalid email' (invalid)
+// validate() = false
+```
+
+**Scenario C (Name='John', Email='john@example.com'):**
+```
+Form valid: true
+Name: John, Email: john@example.com
+// Cả 2 validators return null → valid
+// validate() = true → save() chạy → onSaved callbacks
+```

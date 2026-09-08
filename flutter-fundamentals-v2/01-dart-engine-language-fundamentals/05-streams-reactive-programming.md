@@ -555,17 +555,294 @@ class _GoodWidgetState extends State<GoodWidget> {
 - Để pause/resume: cần `StreamController` thủ công thay vì `async*`
 - `pause()` trên subscription: `_sub.pause()` / `_sub.resume()`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa Stream và Future?"**
-   - Future: async computation trả 1 giá trị
-   - Stream: sequence of async values, có thể infinite
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao Single-subscription stream không cho 2 listener?"**
-   - Để tránh tình huống data bị xử lý 2 lần (duplicate side effects). Design choice của Dart — explicit về intent.
+---
 
-3. **"BLoC pattern dùng Stream như thế nào?"**
-   - Input (Events) vào qua Sink của StreamController
-   - Business logic transform events → states
-   - Output (States) ra qua Stream
-   - Widget listen stream và rebuild khi có state mới
+#### Q1 [Junior] — "Sự khác biệt giữa Stream và Future? Khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+| | `Future<T>` | `Stream<T>` |
+|---|---|---|
+| Giá trị | 1 giá trị duy nhất | Nhiều giá trị theo thời gian |
+| Completion | Một lần (complete/error) | Nhiều lần (nhiều data + 1 done) |
+| Analogy | HTTP request/response | WebSocket, Firestore realtime |
+
+```
+Future: ────────────────────● (complete)
+Stream: ────●────●────●────●────● (nhiều events + close)
+```
+
+**Dùng Future khi:** One-shot async operation — fetch API, read file, database query.
+**Dùng Stream khi:** Data thay đổi theo thời gian — realtime database, WebSocket, user input events, countdown timer, paginated data.
+
+```dart
+// Future: lấy 1 lần
+Future<User> fetchUser(String id) async { ... }
+
+// Stream: realtime updates
+Stream<User> watchUser(String id) { // emit mỗi khi user thay đổi trong DB
+  return _firestore.doc('users/$id').snapshots().map(User.fromSnapshot);
+}
+```
+
+---
+
+#### Q2 [Middle] — "Tại sao Single-subscription stream không cho 2 listener? VM quản lý subscription thế nào?"
+
+**Trả lời chuẩn:**
+
+**Lý do design:** Single-subscription stream được thiết kế cho luồng data liên tục có thứ tự (file reading, HTTP response body) — nếu 2 listener cùng nhận, data có thể bị chia đôi (listener 1 nhận chunk đầu, listener 2 nhận chunk sau) → cả hai đều nhận data incomplete. Dart enforce 1 listener để tránh silent data corruption này.
+
+**Cơ chế VM:** `StreamController` nội bộ dùng **single pointer** cho subscription:
+
+```
+StreamController (single-sub) {
+  _StreamSubscription? _subscription;  // chỉ 1 pointer
+
+  listen(...) {
+    if (_subscription != null) throw StateError('Already subscribed');
+    _subscription = _createSubscription(...);
+    return _subscription!;
+  }
+}
+```
+
+**Broadcast stream** thay bằng **linked list**:
+```
+StreamController (broadcast) {
+  _BroadcastSubscription? _firstSub;
+  _BroadcastSubscription? _lastSub;
+  // add() iterate toàn bộ list, gọi onData cho mỗi node
+}
+```
+
+Tạo broadcast từ single-sub: `stream.asBroadcastStream()` — tạo wrapper broadcast mới, forward events đến toàn bộ listeners.
+
+---
+
+#### Q3 [Middle] — "BLoC pattern sử dụng Stream như thế nào? `StreamController` đóng vai trò gì?"
+
+**Trả lời chuẩn:**
+
+BLoC (Business Logic Component) dùng Stream để tạo **unidirectional data flow**:
+
+```
+UI Event (tap, input)
+    │
+    ▼ sink.add(event)
+StreamController<Event> (input sink)
+    │
+    ▼ business logic transform
+StreamController<State> (output stream)
+    │
+    ▼ StreamBuilder/listen
+UI rebuild
+```
+
+```dart
+class CounterBloc {
+  // Input: nhận event từ UI qua sink
+  final _eventController = StreamController<CounterEvent>();
+  Sink<CounterEvent> get eventSink => _eventController.sink;
+
+  // Output: phát state cho UI qua stream
+  final _stateController = StreamController<int>.broadcast();
+  Stream<int> get stateStream => _stateController.stream;
+
+  CounterBloc() {
+    int _count = 0;
+    _eventController.stream.listen((event) {
+      // Business logic: transform event → new state
+      if (event == CounterEvent.increment) _count++;
+      if (event == CounterEvent.decrement) _count--;
+      _stateController.add(_count); // emit new state
+    });
+  }
+
+  void dispose() {
+    _eventController.close();
+    _stateController.close();
+  }
+}
+
+// Widget dùng:
+StreamBuilder<int>(
+  stream: bloc.stateStream,
+  builder: (_, snapshot) => Text('${snapshot.data ?? 0}'),
+)
+```
+
+`StreamController.broadcast()` cho phép nhiều `StreamBuilder` cùng listen — cần thiết khi nhiều widget cùng subscribe một BLoC state.
+
+---
+
+#### Q4 [Senior] — "`async*` function với `yield` hoạt động thế nào ở tầng compiler? So sánh với `async` function."
+
+**Trả lời chuẩn:**
+
+`async*` function được compiler biến đổi thành **generator state machine** — tương tự `async` nhưng thay vì complete một Future, nó add events vào stream liên tục:
+
+```dart
+// Bạn viết:
+Stream<int> countdown(int from) async* {
+  for (var i = from; i >= 0; i--) {
+    yield i;                                           // suspension point
+    await Future.delayed(const Duration(seconds: 1));
+  }
+}
+```
+
+```
+// Compiler sinh ra (conceptually):
+Stream<int> countdown(int from) {
+  final _controller = StreamController<int>();
+  int i = from;
+
+  void _resume() {
+    if (i < 0) { _controller.close(); return; } // loop done
+    _controller.add(i);   // yield i → add event
+    // Back-pressure: nếu listener pause → KHÔNG gọi _resume tiếp
+    Future.delayed(Duration(seconds: 1)).then((_) {
+      i--;
+      _resume();           // resume sau delay
+    });
+  }
+
+  _controller.onListen = _resume; // kickstart khi có listener
+  return _controller.stream;
+}
+```
+
+**Khác `async` ở chỗ:**
+- `async`: complete `Completer` **1 lần** với `return value`
+- `async*`: `add()` vào stream **nhiều lần** với `yield value`, close stream khi function kết thúc
+- Back-pressure: `async*` tự động pause khi listener gọi `subscription.pause()` — không cần code thêm
+
+---
+
+#### Q5 [Senior] — "Tại sao Single-subscription stream throw `StateError` khi `listen()` lần 2? Cơ chế internal là gì?"
+
+**Trả lời chuẩn:**
+
+`StreamController` nội bộ maintain một **state machine** gồm 4 trạng thái: `initial → subscribed → paused → canceled/closed`. Transition `initial → subscribed` chỉ được phép một lần:
+
+```
+StreamController state machine (single-sub):
+  initial
+    │ listen() called
+    ▼
+  subscribed ←─── pause() ──→ paused
+    │                              │
+    │ cancel() / close()           │ resume() / cancel()
+    ▼                              ▼
+  done ──────────────────────── done
+
+listen() khi đang ở state 'subscribed': → throw StateError
+```
+
+**Broadcast stream** không có state machine này — nó maintain linked list, `listen()` chỉ thêm node mới vào list, không check state.
+
+**Hệ quả practical:**
+```dart
+final stream = Stream.fromIterable([1, 2, 3]); // single-sub
+stream.listen(print); // OK: initial → subscribed
+stream.listen(print); // 💥 StateError: Stream has already been listened to.
+
+// Fix: convert sang broadcast
+final broadcast = Stream.fromIterable([1, 2, 3]).asBroadcastStream();
+broadcast.listen(print); // OK
+broadcast.listen(print); // OK — linked list, no state check
+```
+
+---
+
+#### Q6 [Middle] — "`await for` và `listen()` thủ công khác nhau thế nào? `await for` có đảm bảo cancel khi widget dispose không?"
+
+**Trả lời chuẩn:**
+
+`await for` là **syntactic sugar** cho `listen()` + automatic cancel trong `finally`:
+
+```dart
+// Bạn viết:
+await for (final item in myStream) {
+  process(item);
+  if (shouldStop) break;
+}
+
+// Compiler desugar thành:
+final _sub = myStream.listen(null);
+try {
+  while (await _sub.moveNext()) {
+    final item = _sub.current;
+    process(item);
+    if (shouldStop) break;
+  }
+} finally {
+  await _sub.cancel(); // ← auto-cancel bất kể exit qua break, return, hay exception
+}
+```
+
+**`await for` đảm bảo cancel** trong mọi trường hợp exit (kể cả exception) vì `cancel()` nằm trong `finally`. Đây là lý do `await for` an toàn hơn `listen()` thủ công cho các trường hợp loop đơn giản.
+
+**Tuy nhiên**, `await for` **không phù hợp cho Flutter widget** vì:
+- Widget cần cancel khi `dispose()` được gọi từ bên ngoài
+- `await for` loop không thể bị interrupt từ bên ngoài trừ khi stream tự close
+- `listen()` với `StreamSubscription` linh hoạt hơn: cancel bất cứ lúc nào từ `dispose()`
+
+---
+
+#### Q7 [Trace Code] — "Đoạn code sau có memory leak không? Nếu có, hậu quả và cách sửa?"
+
+```dart
+class ProductListState extends State<ProductListScreen> {
+  List<Product> _products = [];
+
+  @override
+  void initState() {
+    super.initState();
+    ProductRepository().watchProducts().listen((products) {
+      setState(() => _products = products);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(...);
+}
+```
+
+**Đáp án: Có memory leak nghiêm trọng.**
+
+**Hậu quả:**
+1. `listen()` tạo `StreamSubscription` nhưng không được lưu → không thể cancel
+2. Khi widget bị dispose (navigate away), subscription **vẫn còn active**
+3. Mỗi khi stream emit → `setState()` được gọi trên widget đã dispose → `FlutterError: setState() called after dispose()`
+4. `ProductRepository` và callback closure **không được GC** vì subscription còn giữ reference → memory leak
+
+**Cách sửa đúng:**
+```dart
+class ProductListState extends State<ProductListScreen> {
+  List<Product> _products = [];
+  StreamSubscription<List<Product>>? _subscription; // ← lưu subscription
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = ProductRepository().watchProducts().listen((products) {
+      if (!mounted) return; // guard thêm
+      setState(() => _products = products);
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel(); // ← cancel khi dispose
+    super.dispose();
+  }
+}
+```
+
+**Rule:** Mọi `stream.listen()` phải có `_sub?.cancel()` tương ứng trong `dispose()`. Nếu dùng `StreamBuilder`, Flutter tự quản lý lifecycle — không cần cancel thủ công.

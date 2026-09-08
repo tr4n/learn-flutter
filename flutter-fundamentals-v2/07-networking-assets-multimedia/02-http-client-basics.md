@@ -403,19 +403,318 @@ final dio = Dio(BaseOptions(
 - Implement pagination (load 10 posts mỗi lần)
 - Pull-to-refresh với `RefreshIndicator`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Khi nào dùng `http` package, khi nào dùng `Dio`?"**
-   - `http`: simple app, ít feature, muốn lightweight
-   - `Dio`: interceptors, auth token refresh, file upload, cancellation, request timeout
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Interceptor trong Dio dùng để làm gì?"**
-   - Tự động thêm header (auth token)
-   - Log requests/responses
-   - Handle 401 → refresh token → retry
-   - Transform errors → app-specific exceptions
+---
 
-3. **"Repository pattern có lợi ích gì?"**
-   - Tách UI khỏi HTTP implementation
-   - Dễ swap (http → Dio, mock cho test)
-   - Single source of truth cho data fetching logic
+#### Q1 [Junior] — "Khi nào dùng `http` package, khi nào dùng `Dio`?"
+
+**Trả lời chuẩn:**
+
+| Feature | `http` | `Dio` |
+|---|---|---|
+| **Interceptors** | Không | Có |
+| **Auth token refresh** | Manual, phức tạp | Built-in pattern |
+| **File upload/download** | Hạn chế | Đầy đủ với progress |
+| **Request cancellation** | Không | `CancelToken` |
+| **Timeout** | Có | Có (granular hơn) |
+| **FormData** | Không | Có |
+| **Bundle size** | Nhỏ | Lớn hơn |
+
+```dart
+// Dùng http — simple GET
+final response = await http.get(Uri.parse('https://api.example.com/users'));
+final users = jsonDecode(response.body) as List;
+
+// Dùng Dio — complex app
+final dio = Dio(BaseOptions(
+  baseUrl: 'https://api.example.com',
+  connectTimeout: const Duration(seconds: 5),
+  receiveTimeout: const Duration(seconds: 10),
+));
+final response = await dio.get('/users');
+final users = response.data as List;
+```
+
+**Rule:** `http` cho simple app hoặc MVP. `Dio` cho production app cần auth, retry, logging.
+
+---
+
+#### Q2 [Junior] — "Interceptor trong Dio dùng để làm gì?"
+
+**Trả lời chuẩn:**
+
+`Interceptor` là middleware chạy **trước/sau** mỗi request/response, cho phép inject logic mà không thay đổi từng API call:
+
+```dart
+dio.interceptors.add(InterceptorsWrapper(
+  // Chạy trước mỗi request
+  onRequest: (options, handler) {
+    final token = AuthService.getToken();
+    options.headers['Authorization'] = 'Bearer $token';
+    handler.next(options); // tiếp tục request
+  },
+  
+  // Chạy khi nhận response thành công
+  onResponse: (response, handler) {
+    debugPrint('${response.requestOptions.method} ${response.requestOptions.path}: ${response.statusCode}');
+    handler.next(response);
+  },
+  
+  // Chạy khi có lỗi
+  onError: (error, handler) async {
+    if (error.response?.statusCode == 401) {
+      // Token hết hạn → refresh
+      await AuthService.refreshToken();
+      // Retry request với token mới
+      final retryResponse = await dio.fetch(error.requestOptions);
+      handler.resolve(retryResponse);
+    } else {
+      handler.next(error); // propagate error
+    }
+  },
+));
+```
+
+---
+
+#### Q3 [Middle] — "Repository pattern có lợi ích gì? Cách implement cho networking?"
+
+**Trả lời chuẩn:**
+
+**Repository pattern** là abstraction layer giữa data source (network, database) và domain logic:
+
+```dart
+// Interface — domain không biết implementation
+abstract class ProductRepository {
+  Future<List<Product>> getProducts({int page = 1});
+  Future<Product> getProductById(String id);
+  Future<void> createProduct(Product product);
+}
+
+// Implementation dùng Dio
+class DioProductRepository implements ProductRepository {
+  final Dio _dio;
+  DioProductRepository(this._dio);
+  
+  @override
+  Future<List<Product>> getProducts({int page = 1}) async {
+    final response = await _dio.get('/products', queryParameters: {'page': page});
+    return (response.data as List).map(Product.fromJson).toList();
+  }
+}
+
+// Mock implementation cho test
+class MockProductRepository implements ProductRepository {
+  @override
+  Future<List<Product>> getProducts({int page = 1}) async {
+    return [Product(id: '1', name: 'Test Product')];
+  }
+}
+
+// Inject vào ViewModel
+class ProductViewModel extends ChangeNotifier {
+  final ProductRepository _repo; // depend on abstraction, not implementation
+  ProductViewModel(this._repo);
+}
+```
+
+**Lợi ích:** Swap implementation (Dio → http, network → local DB) mà không thay đổi ViewModel. Test ViewModel với Mock. Single place cho all data fetching logic.
+
+---
+
+#### Q4 [Senior] — "`Dio.interceptors` chain hoạt động thế nào? Flow chi tiết khi có nhiều interceptors?"
+
+**Trả lời chuẩn:**
+
+Dio interceptors là **chain of responsibility pattern**. Mỗi interceptor nhận request/response và quyết định `next()` (tiếp tục chain), `resolve()` (bypass tiếp theo, return response), hoặc `reject()` (propagate error):
+
+```
+Request flow (FIFO order):
+  Request
+  ↓ InterceptorA.onRequest()  → handler.next()
+  ↓ InterceptorB.onRequest()  → handler.next()
+  ↓ InterceptorC.onRequest()  → handler.next()
+  ↓ [Network call]
+  
+Response flow (LIFO order — ngược lại):
+  [Response từ server]
+  ↓ InterceptorC.onResponse() → handler.next()
+  ↓ InterceptorB.onResponse() → handler.next()
+  ↓ InterceptorA.onResponse() → handler.next()
+  ↓ [Caller nhận response]
+  
+Error flow:
+  [Network error hoặc non-2xx status]
+  ↓ InterceptorC.onError()    → handler.next() (hoặc handler.resolve() để retry)
+  ↓ InterceptorB.onError()    → handler.next()
+  ↓ InterceptorA.onError()    → handler.next()
+  ↓ [Caller nhận DioException]
+```
+
+**Retry trong interceptor:**
+```dart
+onError: (error, handler) async {
+  if (error.response?.statusCode == 401) {
+    try {
+      await _refreshToken();
+      // Tạo request mới với token mới — bypass interceptors (tránh loop)
+      final response = await _dio.fetch(error.requestOptions);
+      handler.resolve(response); // ← bypass error interceptors phía sau
+    } catch (e) {
+      handler.reject(DioException(...)); // refresh thất bại
+    }
+  }
+},
+```
+
+---
+
+#### Q5 [Middle] — "Token refresh với Dio: implement `401 → refresh → retry` mà không leak concurrent requests?"
+
+**Trả lời chuẩn:**
+
+**Vấn đề race condition:** Nếu 3 requests đồng thời nhận 401, cả 3 đều try refresh token → 3 refresh calls → API có thể revoke tokens.
+
+**Solution: Lock pattern với `Completer`:**
+
+```dart
+class AuthInterceptor extends Interceptor {
+  final Dio _dio;
+  bool _isRefreshing = false;
+  final List<Completer<void>> _refreshCompleters = [];
+
+  @override
+  Future<void> onError(DioException error, ErrorInterceptorHandler handler) async {
+    if (error.response?.statusCode != 401) {
+      return handler.next(error);
+    }
+    
+    if (_isRefreshing) {
+      // Đã có refresh đang chạy — đợi nó xong
+      final completer = Completer<void>();
+      _refreshCompleters.add(completer);
+      await completer.future; // đợi refresh xong
+      // Retry với token mới
+      final response = await _dio.fetch(error.requestOptions);
+      return handler.resolve(response);
+    }
+    
+    _isRefreshing = true;
+    try {
+      await AuthService.refreshToken();
+      // Notify tất cả waiters
+      for (final c in _refreshCompleters) c.complete();
+      _refreshCompleters.clear();
+      // Retry request này
+      final response = await _dio.fetch(error.requestOptions);
+      handler.resolve(response);
+    } catch (e) {
+      for (final c in _refreshCompleters) c.completeError(e);
+      _refreshCompleters.clear();
+      handler.next(error);
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+}
+```
+
+---
+
+#### Q6 [Middle] — "`http.Client` cần dispose() không? Connection pooling là gì?"
+
+**Trả lời chuẩn:**
+
+`http.Client` nên được **disposed** khi không còn dùng để release socket connections:
+
+```dart
+// ❌ Tạo Client mỗi request — không tận dụng connection pooling
+Future<void> fetchData() async {
+  final client = http.Client();
+  try {
+    final response = await client.get(url);
+    // xử lý response
+  } finally {
+    client.close(); // release sockets
+  }
+}
+
+// ✅ Reuse Client — tận dụng connection pooling
+class ApiClient {
+  final http.Client _client = http.Client();
+  
+  Future<Map> get(String url) async {
+    final response = await _client.get(Uri.parse(url));
+    return jsonDecode(response.body);
+  }
+  
+  void dispose() => _client.close(); // cleanup khi app close
+}
+```
+
+**Connection pooling:** HTTP/1.1 và HTTP/2 support **keep-alive connections** — sau khi request hoàn thành, socket không đóng ngay mà được giữ trong pool. Request tiếp theo đến cùng host reuse socket đó → tiết kiệm TCP handshake overhead (~100-200ms).
+
+`http.Client` duy trì internal socket pool. Tạo Client mới mỗi request → không có pooling → chậm hơn và tốn resources hơn.
+
+---
+
+#### Q7 [Trace Code] — "Request timeout vs connection timeout: xác định loại exception"
+
+```dart
+final dio = Dio(BaseOptions(
+  baseUrl: 'https://api.slow-server.com',
+  connectTimeout: const Duration(seconds: 3), // thời gian kết nối
+  receiveTimeout: const Duration(seconds: 10), // thời gian nhận response
+));
+
+// Scenario A: Server không respond TCP handshake (server down)
+try {
+  final response = await dio.get('/data');
+} on DioException catch (e) {
+  print('Type: ${e.type}'); // ?
+  print('Message: ${e.message}'); // ?
+}
+
+// Scenario B: Server kết nối OK nhưng xử lý rất chậm (>10s)
+try {
+  final response = await dio.get('/slow-endpoint');
+} on DioException catch (e) {
+  print('Type: ${e.type}'); // ?
+}
+
+// Scenario C: Server trả về 500 Internal Server Error
+try {
+  final response = await dio.get('/error-endpoint');
+} on DioException catch (e) {
+  print('Type: ${e.type}'); // ?
+  print('StatusCode: ${e.response?.statusCode}'); // ?
+}
+```
+
+**Kết quả:**
+
+**Scenario A (server down, không kết nối được trong 3s):**
+```
+Type: DioExceptionType.connectionTimeout
+Message: Connecting timed out [3000ms]
+// connectTimeout bị vượt → DioExceptionType.connectionTimeout
+```
+
+**Scenario B (kết nối OK, nhưng response > 10s):**
+```
+Type: DioExceptionType.receiveTimeout
+// Đã kết nối TCP, đang đợi response → receiveTimeout bị vượt
+```
+
+**Scenario C (500 Internal Server Error):**
+```
+Type: DioExceptionType.badResponse
+StatusCode: 500
+// Server respond với non-2xx → DioExceptionType.badResponse
+// e.response != null → có thể đọc response body
+```
+
+**Lưu ý:** `DioExceptionType.connectionError` xảy ra khi có network issue (không có internet, DNS fail) — khác với timeout.

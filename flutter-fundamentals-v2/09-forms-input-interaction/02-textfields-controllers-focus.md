@@ -337,16 +337,350 @@ class _State extends State<MyWidget> {
 - `FocusNode` + `TextEditingController` cho mỗi field
 - `ValueListenableBuilder` hoặc listener để track all-filled state
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"TextEditingController vs uncontrolled TextField?"**
-   - Controller: bạn control text state (đọc, set, clear)
-   - Uncontrolled: Flutter tự manage text (dùng khi không cần read/set programmatically)
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"FocusNode.requestFocus() vs FocusScope.of(context).requestFocus()?"**
-   - Gần như tương đương; FocusScope dùng context hiện tại để navigate
-   - `FocusScope.of(context).nextFocus()`: chuyển focus theo DOM order
+---
 
-3. **"TextInputFormatter.formatEditUpdate trả về gì?"**
-   - `TextEditingValue`: cặp (text, selection)
-   - Bạn phải trả về giá trị hợp lệ để cursor placement đúng
+#### Q1 [Junior] — "`TextEditingController` vs uncontrolled `TextField`: khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+| | `TextEditingController` | Uncontrolled (`TextField` thuần) |
+|---|---|---|
+| **State** | Bạn kiểm soát | Flutter quản lý nội bộ |
+| **Đọc text** | `controller.text` | Không đọc được programmatically |
+| **Set text** | `controller.text = 'value'` | Không thể |
+| **Clear** | `controller.clear()` | Không thể |
+| **Listen changes** | `controller.addListener()` | `onChanged` callback |
+| **Cursor position** | `controller.selection` | Không kiểm soát |
+
+```dart
+// Controlled — cần đọc/set text programmatically
+class _LoginState extends State<LoginPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  
+  @override
+  void dispose() {
+    _emailController.dispose(); // QUAN TRỌNG
+    _passwordController.dispose();
+    super.dispose();
+  }
+  
+  void _submit() {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    // ... login logic
+  }
+  
+  @override
+  Widget build(context) => Column(children: [
+    TextField(controller: _emailController),
+    TextField(controller: _passwordController, obscureText: true),
+    ElevatedButton(onPressed: _submit, child: const Text('Login')),
+  ]);
+}
+
+// Uncontrolled — chỉ cần react to changes
+TextField(
+  onChanged: (value) => print('Typing: $value'),
+  // Không cần controller nếu không đọc/set text
+)
+```
+
+---
+
+#### Q2 [Junior] — "`FocusNode.requestFocus()` vs `FocusScope.of(context).requestFocus()`?"
+
+**Trả lời chuẩn:**
+
+| | `focusNode.requestFocus()` | `FocusScope.of(context).requestFocus(node)` |
+|---|---|---|
+| **Cách dùng** | `myFocusNode.requestFocus()` | `FocusScope.of(context).requestFocus(myFocusNode)` |
+| **Result** | Tương đương | Tương đương |
+| **Extra** | — | Có `nextFocus()`, `previousFocus()` |
+
+```dart
+// Hai cách tương đương để focus vào specific node
+_focusNode.requestFocus();
+FocusScope.of(context).requestFocus(_focusNode);
+
+// FocusScope exclusive features:
+// nextFocus — focus vào field tiếp theo theo thứ tự DOM
+FocusScope.of(context).nextFocus();
+
+// Unfocus (dismiss keyboard)
+FocusScope.of(context).unfocus();
+// hoặc
+_focusNode.unfocus();
+
+// Practical: form với multiple fields
+TextField(
+  focusNode: _emailFocusNode,
+  textInputAction: TextInputAction.next, // "Next" button trên keyboard
+  onEditingComplete: () => FocusScope.of(context).nextFocus(), // move to next
+),
+TextField(
+  focusNode: _passwordFocusNode,
+  textInputAction: TextInputAction.done,
+  onEditingComplete: () => FocusScope.of(context).unfocus(), // dismiss keyboard
+),
+```
+
+---
+
+#### Q3 [Middle] — "`TextInputFormatter.formatEditUpdate()` trả về gì? Cursor placement?"
+
+**Trả lời chuẩn:**
+
+`formatEditUpdate(TextEditingValue old, TextEditingValue new)` nhận giá trị cũ và mới, trả về `TextEditingValue` đã được filter/transform:
+
+```dart
+// Custom formatter: chỉ cho phép số, auto-format thành phone number
+class PhoneNumberFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Xóa tất cả non-digit characters
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
+    
+    // Format: 0901 234 567 → max 10 digits
+    if (digitsOnly.length > 10) {
+      return oldValue; // reject — trả về giá trị cũ (không thay đổi)
+    }
+    
+    // Build formatted string
+    String formatted = digitsOnly;
+    if (digitsOnly.length > 4) formatted = '${digitsOnly.substring(0, 4)} ${digitsOnly.substring(4)}';
+    if (digitsOnly.length > 7) formatted = '${formatted.substring(0, 9)} ${digitsOnly.substring(7)}';
+    
+    // QUAN TRỌNG: cursor placement phải đúng
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(
+        offset: formatted.length, // cursor ở cuối
+      ),
+    );
+  }
+}
+
+// Dùng:
+TextField(
+  inputFormatters: [PhoneNumberFormatter()],
+  keyboardType: TextInputType.phone,
+)
+```
+
+**Cursor placement critical:** Nếu trả về wrong `selection.offset`, cursor nhảy vị trí kỳ lạ → UX xấu. Luôn calculate cursor position based on transformed text.
+
+---
+
+#### Q4 [Senior] — "`FocusNode` và `FocusManager`: khi `requestFocus()`, `FocusManager` làm gì? Platform channel cho keyboard?"
+
+**Trả lời chuẩn:**
+
+```dart
+// FocusNode.requestFocus() flow:
+focusNode.requestFocus()
+  ↓
+FocusManager.instance.primaryFocus?.unfocus() // unfocus hiện tại
+  ↓
+FocusManager._currentFocus = focusNode
+  ↓
+FocusManager._notifyFocusChange() // notify listeners
+  ↓
+Nếu focusNode có TextInputClient (TextField):
+  TextInputConnection.attach(client, textInputConfiguration)
+  ↓
+  Platform channel: 'TextInput.setClient' + 'TextInput.show'
+  ↓
+  iOS: UITextInput protocol → keyboard shows
+  Android: InputMethodManager.showSoftInput() → keyboard shows
+```
+
+**Platform channel message:**
+```dart
+// Flutter → Platform (pseudo-code)
+SystemChannels.textInput.invokeMethod('TextInput.setClient', [
+  clientId,
+  {
+    'inputType': {'name': 'TextInputType.text'},
+    'inputAction': 'TextInputAction.done',
+    'keyboardAppearance': 'Brightness.light',
+  }
+]);
+SystemChannels.textInput.invokeMethod('TextInput.show');
+
+// Platform → Flutter (khi user type)
+SystemChannels.textInput.setMethodCallHandler((call) {
+  if (call.method == 'TextInputClient.updateEditingState') {
+    // Update TextEditingController với text mới
+  }
+});
+```
+
+---
+
+#### Q5 [Middle] — "`TextEditingController.dispose()` vs không dispose: memory leak scenario?"
+
+**Trả lời chuẩn:**
+
+`TextEditingController` extends `ValueNotifier<TextEditingValue>` which extends `ChangeNotifier`. Nếu không dispose:
+
+**Memory leak chain:**
+```
+_controller = TextEditingController()
+  ↓ Tạo
+_controller.addListener(() => setState((){}))
+  ↓ Widget đăng ký listener
+Widget unmount → State.dispose() được gọi
+  ↓ NHƯNG _controller không dispose!
+  
+_controller vẫn alive
+  ↓ listener (setState callback) vẫn alive  
+  ↓ listener giữ reference đến State
+  ↓ State giữ reference đến BuildContext
+  ↓ BuildContext giữ reference đến element tree
+
+→ Memory leak: toàn bộ chain không được GC
+→ _controller vẫn nhận TextInput events → setState trên disposed widget → crash
+```
+
+```dart
+// ❌ Memory leak
+class _FormState extends State<Form> {
+  final _controller = TextEditingController();
+  // Không có dispose → leak!
+}
+
+// ✅ Đúng
+class _FormState extends State<Form> {
+  final _controller = TextEditingController();
+  
+  @override
+  void dispose() {
+    _controller.dispose(); // giải phóng listener list, platform connection
+    super.dispose();
+  }
+}
+```
+
+---
+
+#### Q6 [Middle] — "`TextInputFormatter.formatEditUpdate()` được gọi khi nào? `oldValue` vs `newValue`?"
+
+**Trả lời chuẩn:**
+
+`formatEditUpdate()` được gọi **mỗi lần text thay đổi** — bao gồm: typing, paste, delete, autocorrect, programmatic set.
+
+```
+User types 'a' trong TextField
+  ↓
+Platform sends TextInputClient.updateEditingState(newText)
+  ↓
+Flutter EditableText nhận
+  ↓
+Gọi tất cả formatters theo thứ tự trong inputFormatters list:
+  formatter1.formatEditUpdate(old, new) → result1
+  formatter2.formatEditUpdate(old, result1) → result2  ← chain!
+  ↓
+result2 được set vào TextEditingController
+```
+
+**`oldValue` vs `newValue`:**
+```dart
+@override
+TextEditingValue formatEditUpdate(
+  TextEditingValue oldValue,  // giá trị TRƯỚC khi user thay đổi
+  TextEditingValue newValue,  // giá trị SAU khi user thay đổi (đã có input mới)
+) {
+  // oldValue: dùng để "reject và restore" nếu input không hợp lệ
+  if (isInvalid(newValue.text)) {
+    return oldValue; // reject → không thay đổi gì
+  }
+  
+  // newValue: giá trị mới để transform
+  return newValue.copyWith(
+    text: transform(newValue.text),
+  );
+}
+```
+
+---
+
+#### Q7 [Trace Code] — "Focus leak: navigate away không unfocus → keyboard behavior trên màn hình mới?"
+
+```dart
+// Screen A: TextPage
+class _TextPageState extends State<TextPage> {
+  final _focusNode = FocusNode();
+  
+  @override
+  Widget build(context) {
+    return Scaffold(
+      body: Column(children: [
+        TextField(focusNode: _focusNode),
+        ElevatedButton(
+          onPressed: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const NextPage())),
+          child: const Text('Navigate'),
+        ),
+      ]),
+    );
+  }
+  
+  // ❌ Không dispose FocusNode, không unfocus khi navigate
+  @override void dispose() { super.dispose(); }
+}
+
+// Screen B: NextPage — không có TextField
+class NextPage extends StatelessWidget {
+  const NextPage({super.key});
+  @override Widget build(context) => Scaffold(
+    body: Column(children: [
+      const Text('Next Page'),
+      ElevatedButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Back'),
+      ),
+    ]),
+  );
+}
+```
+
+**Điều gì xảy ra:**
+
+1. User tap TextField trên Screen A → keyboard show, `_focusNode` has focus
+2. User tap "Navigate" → Screen B push on top
+3. **Keyboard vẫn show** trên Screen B vì `_focusNode` vẫn focused
+4. Screen B không có TextField → keyboard hiện trên một màn hình không có input → **confusing UX**
+5. User có thể type nhưng không có nơi để nhận input
+
+**Fix:**
+```dart
+// Option 1: Unfocus khi navigate
+ElevatedButton(
+  onPressed: () {
+    FocusScope.of(context).unfocus(); // dismiss keyboard trước khi navigate
+    Navigator.push(context, ...);
+  },
+)
+
+// Option 2: Unfocus trong deactivate
+@override
+void deactivate() {
+  FocusScope.of(context).unfocus(); // auto unfocus khi route deactivated
+  super.deactivate();
+}
+
+// Option 3: Dispose FocusNode đúng cách → auto unfocus
+@override
+void dispose() {
+  _focusNode.dispose(); // dispose → unfocus automatically
+  super.dispose();
+}
+```

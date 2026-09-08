@@ -322,18 +322,316 @@ case AppRoutes.home:
   return MaterialPageRoute(builder: (_) => const HomeScreen());
 ```
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Sự khác biệt giữa `routes:` và `onGenerateRoute:`?"**
-   - `routes:`: simple map, không có args, không có guard
-   - `onGenerateRoute`: full control, args, guard, transitions
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao nên dùng constants cho route names?"**
-   - Tránh typo (compile-time safe)
-   - IDE auto-complete và refactoring
-   - Centralized documentation
+---
 
-3. **"Làm thế nào handle deep link với named routes?"**
-   - `onGenerateRoute` nhận route name từ deeplink URL
-   - Parse URL → extract args → create route
-   - Navigator 2.0/GoRouter handles này tốt hơn (bài 6.4)
+#### Q1 [Junior] — "Sự khác biệt giữa `routes:` map và `onGenerateRoute:`?"
+
+**Trả lời chuẩn:**
+
+| | `routes: Map<String, WidgetBuilder>` | `onGenerateRoute: RouteFactory` |
+|---|---|---|
+| **Arguments** | Không support | Support `settings.arguments` |
+| **Custom transition** | Không — dùng default | Có — PageRouteBuilder |
+| **Guard/auth check** | Không | Có — redirect trong factory |
+| **Dynamic route** | Không | Có — pattern matching |
+| **Complexity** | Đơn giản | Linh hoạt |
+
+```dart
+// routes: — simple, no args
+MaterialApp(
+  routes: {
+    '/home': (_) => const HomePage(),
+    '/profile': (_) => const ProfilePage(),
+    // Không thể truyền args!
+  },
+)
+
+// onGenerateRoute: — full control
+MaterialApp(
+  onGenerateRoute: (settings) {
+    // Guard
+    if (!AuthService.isLoggedIn && settings.name != '/login') {
+      return MaterialPageRoute(builder: (_) => const LoginPage());
+    }
+    
+    switch (settings.name) {
+      case '/product':
+        final args = settings.arguments as ProductArgs;
+        return MaterialPageRoute(builder: (_) => ProductPage(args: args));
+      case '/':
+        return MaterialPageRoute(builder: (_) => const HomePage());
+      default:
+        return MaterialPageRoute(builder: (_) => const NotFoundPage());
+    }
+  },
+)
+```
+
+---
+
+#### Q2 [Junior] — "Tại sao nên dùng constants cho route names? Cách tổ chức?"
+
+**Trả lời chuẩn:**
+
+**Vấn đề với string literals:**
+```dart
+// ❌ String literals — dễ typo, khó refactor
+Navigator.pushNamed(context, '/prodcut'); // typo!
+// Compile OK → runtime: route not found
+```
+
+**Constants — compile-time safe:**
+```dart
+// ✅ Central route definitions
+abstract class AppRoutes {
+  static const home = '/';
+  static const login = '/login';
+  static const product = '/product';
+  static const productDetail = '/product/detail';
+  
+  // Prevent instantiation
+  const AppRoutes._();
+}
+
+// Dùng constants — IDE autocomplete, refactoring-safe
+Navigator.pushNamed(context, AppRoutes.product);
+// Đổi tên route → chỉ đổi 1 chỗ trong AppRoutes, không phải tìm khắp codebase
+```
+
+**Tổ chức nâng cao:**
+```dart
+// Route constants với type-safe navigation helpers
+abstract class Routes {
+  static const home = '/';
+  static const product = '/product';
+  
+  static void goToProduct(BuildContext context, String id) {
+    Navigator.pushNamed(context, product, arguments: ProductArgs(id: id));
+  }
+}
+// Gọi: Routes.goToProduct(context, 'p123')
+```
+
+---
+
+#### Q3 [Middle] — "Route guard (auth check trước khi navigate): implement thế nào với `onGenerateRoute`?"
+
+**Trả lời chuẩn:**
+
+```dart
+// Global auth guard với onGenerateRoute
+MaterialApp(
+  onGenerateRoute: (settings) {
+    // Định nghĩa routes cần auth
+    final protectedRoutes = {'/home', '/profile', '/settings'};
+    
+    // Auth check
+    if (protectedRoutes.contains(settings.name) && !AuthService.isLoggedIn) {
+      // Redirect về login, lưu lại intended destination
+      return MaterialPageRoute(
+        builder: (_) => LoginPage(redirectTo: settings.name),
+      );
+    }
+    
+    // Normal route resolution
+    return _resolveRoute(settings);
+  },
+)
+
+// Sau khi login thành công:
+class _LoginPageState extends State<LoginPage> {
+  Future<void> _login() async {
+    await AuthService.login(...);
+    if (!mounted) return;
+    // Navigate về intended destination sau login
+    Navigator.pushReplacementNamed(
+      context,
+      widget.redirectTo ?? '/',
+    );
+  }
+}
+```
+
+**Hạn chế:** Guard này chỉ chạy khi `pushNamed()` — không handle deep links tự động. GoRouter hoặc Navigator 2.0 với `redirect` callback xử lý case này tốt hơn.
+
+---
+
+#### Q4 [Senior] — "`onGenerateRoute` nhận `RouteSettings`: cơ chế nào gọi nó? Route không match thì sao?"
+
+**Trả lời chuẩn:**
+
+**Khi `Navigator.pushNamed(context, '/product')` được gọi:**
+
+```dart
+// Navigator source (simplified)
+Future<T?> pushNamed<T extends Object?>(String routeName, {Object? arguments}) {
+  return push<T>(_routeNamed<T>(routeName, arguments: arguments)!);
+}
+
+Route<T>? _routeNamed<T>(String name, {Object? arguments}) {
+  final RouteSettings settings = RouteSettings(name: name, arguments: arguments);
+  
+  // 1. Check routes map trước
+  Route<T>? route = widget.onGenerateInitialRoutes != null
+      ? null
+      : _routes[name]?.call(navigator) as Route<T>?;
+  
+  // 2. Nếu không có trong routes map → gọi onGenerateRoute
+  if (route == null && widget.onGenerateRoute != null) {
+    route = widget.onGenerateRoute!(settings) as Route<T>?;
+  }
+  
+  // 3. Nếu vẫn null → gọi onUnknownRoute (404 handler)
+  if (route == null && widget.onUnknownRoute != null) {
+    route = widget.onUnknownRoute!(settings) as Route<T>?;
+  }
+  
+  return route;
+}
+```
+
+**`onUnknownRoute` — 404 handler:**
+```dart
+MaterialApp(
+  onGenerateRoute: (settings) => _resolveRoute(settings),
+  onUnknownRoute: (settings) => MaterialPageRoute(
+    builder: (_) => NotFoundPage(routeName: settings.name),
+  ),
+)
+```
+
+Nếu cả `onGenerateRoute` và `onUnknownRoute` đều return null → Flutter throw `NavigatorException`.
+
+---
+
+#### Q5 [Middle] — "Named routes vs explicit push — trade-off về type safety và maintainability?"
+
+**Trả lời chuẩn:**
+
+| Aspect | Named routes | Explicit `push(Route)` |
+|---|---|---|
+| **Type safety** | Thấp — String route name | Cao — Widget type checked |
+| **Args** | Loosely typed (`Object?`) | Strongly typed constructor |
+| **Deep link** | Support native | Cần mapping code |
+| **Code navigation** | Khó trace (string → route) | Dễ Ctrl+Click |
+| **Testing** | Route factory cần test | Widget test trực tiếp |
+
+```dart
+// Named — loosely typed
+Navigator.pushNamed(context, '/product', arguments: {'id': '123'});
+// Trong page: args as Map<String, String> → cast, có thể crash
+
+// Explicit — type safe
+Navigator.push(context, MaterialPageRoute(
+  builder: (_) => ProductPage(id: '123'), // compile-time safe
+));
+
+// Best of both: typed wrapper
+class AppRouter {
+  static Route<T> product<T>(String id) => MaterialPageRoute(
+    settings: const RouteSettings(name: '/product'),
+    builder: (_) => ProductPage(id: id),
+  );
+}
+Navigator.push(context, AppRouter.product('123'));
+// Type-safe + URL tracking (thông qua RouteSettings.name)
+```
+
+---
+
+#### Q6 [Middle] — "Dynamic route matching với `onGenerateRoute` — ví dụ `/product/:id`?"
+
+**Trả lời chuẩn:**
+
+`onGenerateRoute` nhận full route string — cần parse thủ công:
+
+```dart
+MaterialApp(
+  onGenerateRoute: (settings) {
+    final uri = Uri.parse(settings.name ?? '/');
+    
+    // Match /product/:id
+    if (uri.pathSegments.length == 2 && uri.pathSegments[0] == 'product') {
+      final productId = uri.pathSegments[1];
+      return MaterialPageRoute(
+        builder: (_) => ProductDetailPage(id: productId),
+      );
+    }
+    
+    // Match /category/:name/products
+    if (uri.pathSegments.length == 3 && 
+        uri.pathSegments[0] == 'category' &&
+        uri.pathSegments[2] == 'products') {
+      final category = uri.pathSegments[1];
+      return MaterialPageRoute(
+        builder: (_) => CategoryProductsPage(category: category),
+      );
+    }
+    
+    // Query params: /search?q=flutter
+    if (uri.path == '/search') {
+      final query = uri.queryParameters['q'];
+      return MaterialPageRoute(
+        builder: (_) => SearchPage(initialQuery: query),
+      );
+    }
+    
+    return null; // → onUnknownRoute
+  },
+)
+```
+
+**Khi dùng GoRouter thay thế:** Route patterns trở nên đơn giản hơn nhiều:
+```dart
+GoRoute(path: '/product/:id', builder: (ctx, state) => ProductPage(id: state.pathParameters['id']!))
+```
+
+---
+
+#### Q7 [Trace Code] — "Deep link với named route: flow từ platform OS đến Widget"
+
+```dart
+// pubspec.yaml: flutter_deep_linking hoặc cấu hình intent-filter
+// Android intent: android.intent.action.VIEW với URI 'myapp://product/p123'
+
+// Flutter app setup
+MaterialApp(
+  onGenerateRoute: (settings) {
+    final name = settings.name;
+    // ... route resolution
+  },
+)
+
+// Hỏi: khi OS gửi deep link 'myapp://product/p123', flow đến Widget là gì?
+```
+
+**Flow chi tiết:**
+
+```
+OS → Android Intent / iOS Universal Link
+  ↓
+Flutter Engine nhận URI qua platform channel
+  ↓
+WidgetsBinding.handlePushRoute('/product/p123')
+  ↓
+Navigator.pushNamed(context, '/product/p123')
+  ↓
+_Navigator._routeNamed('/product/p123')
+  ↓
+onGenerateRoute(RouteSettings(name: '/product/p123'))
+  ↓ parse URI: pathSegments = ['product', 'p123']
+  ↓
+MaterialPageRoute(builder: (_) => ProductDetailPage(id: 'p123'))
+  ↓
+ProductDetailPage widget được render
+```
+
+**Điểm quan trọng:**
+- Deep link hoạt động với named routes vì `handlePushRoute` gọi `pushNamed`
+- Nếu app chưa mở: OS launch app → `initialRoute` = deep link URL
+- Nếu app đang chạy: push route mới lên stack hiện tại
+- GoRouter xử lý cả 2 case elegantly qua `redirect` và `initialLocation`

@@ -414,14 +414,214 @@ class ApiResponse {
 - `statusCode` luôn tồn tại → `int statusCode` (non-nullable)
 - `timestamp` luôn có → `DateTime timestamp`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Tại sao Dart chọn Sound Null Safety thay vì Unsound?"**
-   - Gợi ý: Kotlin có unsound trong một số trường hợp (platform types khi interop với Java). Sound cho phép compiler optimize aggressively hơn.
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `Object` và `Object?` trong Dart?"**
-   - `Object` là non-nullable root type — không bao giờ là null
-   - `Object?` chấp nhận cả null
+---
 
-3. **"Khi nào `late` thực sự cần thiết?"**
-   - Khi field non-nullable không thể khởi tạo trong constructor (ví dụ: cần `context` trong Flutter, hoặc lazy init đắt tiền)
+#### Q1 [Junior] — "Tại sao Dart chọn Sound Null Safety thay vì Unsound? Ý nghĩa của 'Sound' là gì?"
+
+**Trả lời chuẩn:**
+
+**Sound** có nghĩa là compiler *chứng minh được* — nếu một biến có type `String` (non-nullable), compiler đảm bảo 100% không có null ở đó, không có ngoại lệ nào. Không phải chỉ "gợi ý" mà là *proof*.
+
+**Unsound** xảy ra khi có lỗ hổng trong type system — một số trường hợp compiler không thể chứng minh, phải dùng runtime check. Kotlin có unsound trong trường hợp **platform types** khi interop với Java: giá trị từ Java code không có nullable annotation → Kotlin compiler không thể verify → phải check runtime.
+
+**Lợi ích của Sound Null Safety trong Dart:**
+1. **Zero runtime null checks** cho những gì compiler đã chứng minh — AOT output không cần defensive null check
+2. **Aggressive optimization:** Compiler biết `String` luôn là valid String object → không cần null guard trong generated code → faster execution
+3. **Compile-time error, không phải crash:** NPE bị bắt trước khi app deploy
+
+**Giá phải trả:** Migration cost — code cũ (pre Dart 2.12) phải thêm nullable annotation. Kotlin chọn unsound một phần để giảm friction khi migrate Java codebase.
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `Object` và `Object?` trong Dart? Tại sao `dynamic` khác cả hai?"
+
+**Trả lời chuẩn:**
+
+```
+Type Hierarchy:
+  Object?          ← root của mọi type, chấp nhận null
+  ├── Object       ← non-nullable root, KHÔNG chấp nhận null
+  │   ├── String, int, Widget, ...
+  └── Null         ← chỉ có giá trị null
+```
+
+- **`Object`**: Non-nullable — mọi object hợp lệ (String, int, Widget...) nhưng không phải null. `void foo(Object x)` chấp nhận bất kỳ non-null value nào.
+- **`Object?`**: Nullable root — chấp nhận cả null lẫn bất kỳ object nào. `void foo(Object? x)` là function nhận bất cứ thứ gì.
+- **`dynamic`**: Khác hoàn toàn — tắt static type checking. Mọi method call trên `dynamic` đều được compiler chấp thuận mà không check → lỗi chỉ xuất hiện ở runtime. Đây là "escape hatch" không an toàn, tránh dùng.
+
+```dart
+void process(Object value) {
+  value.toString();    // ✅ Object đảm bảo có toString()
+  value.length;        // ❌ Compile error: Object không có length
+}
+
+void processDynamic(dynamic value) {
+  value.anyMethod();   // ✅ Compiler chấp nhận (không check) → có thể crash runtime
+}
+```
+
+---
+
+#### Q3 [Middle] — "Khi nào `late` thực sự cần thiết? Rủi ro là gì?"
+
+**Trả lời chuẩn:**
+
+`late` cần thiết trong 2 trường hợp:
+
+**1. Field không thể khởi tạo trong constructor nhưng chắc chắn sẽ có giá trị trước khi dùng:**
+```dart
+class _MyPageState extends State<MyPage> {
+  late AnimationController _controller; // cần BuildContext — không có ở constructor
+  
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, ...); // gán ở initState
+  }
+}
+```
+
+**2. Lazy initialization đắt tiền — chỉ tính khi lần đầu truy cập:**
+```dart
+class Config {
+  static late final Config _instance = _loadFromDisk(); // chỉ đọc disk khi cần
+  static Config get instance => _instance;
+}
+```
+
+**Rủi ro:** `late` chuyển lỗi từ **compile-time** thành **runtime**. Compiler chấp nhận code nhưng nếu đọc field trước khi gán → `LateInitializationError` crash runtime — khó debug hơn compile error.
+
+**Rule of thumb:** Trước khi viết `late`, hỏi "Tôi có thể dùng `String?` + handle null không?" Nếu có → dùng nullable. Nếu giá trị *chắc chắn* sẽ được gán và *không bao giờ* null khi dùng → `late` là hợp lý.
+
+---
+
+#### Q4 [Senior] — "`late String name` — Dart Compiler thực sự sinh ra gì ở tầng bytecode?"
+
+**Trả lời chuẩn:**
+
+`late` không phải magic runtime — compiler thay thế nó bằng **nullable backing field + null guard** trong getter/setter:
+
+```dart
+// Bạn viết:
+class Service {
+  late String apiKey;
+  late final DatabaseConnection db;
+}
+```
+
+```
+// Dart Compiler sinh ra (conceptually):
+class Service {
+  // late String apiKey  →
+  String? _apiKey$;
+  String get apiKey {
+    if (_apiKey$ == null) throw LateInitializationError('apiKey');
+    return _apiKey$!;        // ! an toàn vì đã null-check ở trên
+  }
+  set apiKey(String value) => _apiKey$ = value;
+
+  // late final DatabaseConnection db  →
+  DatabaseConnection? _db$;
+  DatabaseConnection get db {
+    if (_db$ == null) throw LateInitializationError('db');
+    return _db$!;
+  }
+  set db(DatabaseConnection value) {
+    if (_db$ != null) throw LateInitializationError('db'); // final: chỉ gán 1 lần
+    _db$ = value;
+  }
+}
+```
+
+**Kết luận:** `late` là pure syntactic sugar — không có VM magic, không có lazy evaluation thực sự (trừ `late final` với initializer). Toàn bộ overhead là 1 null check mỗi lần đọc — negligible về performance nhưng có thể crash runtime nếu dùng sai.
+
+---
+
+#### Q5 [Middle] — "Null-aware operators như `?.`, `??`, `!` có overhead runtime không?"
+
+**Trả lời chuẩn:**
+
+**`?.` và `??` — zero overhead, compile-time desugar:**
+
+Dart compiler transform những operators này thành biểu thức điều kiện đơn giản tại compile time — AOT output identically với code viết tay:
+
+```
+x?.foo        →  x == null ? null : x.foo
+x ?? y        →  x != null ? x : y
+x ??= y       →  x != null ? x : (x = y)
+a?.b?.c       →  a == null ? null : (a.b == null ? null : a.b.c)
+```
+
+Không có function call, không có boxing, không có object allocation thêm — chỉ là conditional branch trong machine code.
+
+**`!` (null-assert) — có runtime check:**
+```
+x!            →  x == null ? throw NullCheckError() : x
+```
+Mỗi lần dùng `!` là 1 runtime null check. Đây là lý do `!` là code smell: nó đặt gánh nặng verification về runtime thay vì để compiler chứng minh tại compile time. Dùng `??` hoặc null check (`if (x != null)`) để tận dụng type promotion zero-cost.
+
+---
+
+#### Q6 [Middle] — "Type promotion trong Dart có tốn runtime cost không? Khác Java `instanceof + cast` thế nào?"
+
+**Trả lời chuẩn:**
+
+**Dart type promotion — zero runtime cost, 100% compile-time:**
+
+```dart
+void process(String? name) {
+  if (name != null) {
+    print(name.length); // 'name' được promote thành String ở đây
+  }
+}
+// AOT output: KHÔNG có instanceof check, KHÔNG có cast — chỉ là null check rồi call .length
+```
+
+Dart Analyzer thực hiện **Data Flow Analysis** — theo dõi tất cả paths trong code, chứng minh tại điểm đó biến không thể là null → không sinh thêm byte nào trong machine code.
+
+**Java — 2 runtime operations:**
+```java
+if (obj instanceof String) {        // runtime type check #1
+  String s = (String) obj;          // runtime cast check #2 (có thể ClassCastException)
+  s.length();
+}
+```
+
+**Kotlin Smart Cast — cùng triết lý với Dart:**
+```kotlin
+if (name != null) {
+  name.length // smart cast — compile-time proof, zero runtime cost
+}
+```
+
+Đây là lý do Dart và Kotlin "smart" hơn Java trong xử lý null: không phải vì "thông minh hơn" mà vì tránh được runtime overhead bằng cách chứng minh tại compile time.
+
+---
+
+#### Q7 [Trace Code] — "Đoạn code sau có compile không? Nếu có, output là gì?"
+
+```dart
+void main() {
+  String? name = 'Flutter';
+  if (name != null) {
+    name = null;              // reassign null trong block
+    print(name.length);       // compile hay error?
+  }
+}
+```
+
+**Đáp án: Compile Error** — `name.length` bị lỗi compile.
+
+**Giải thích từng bước:**
+1. `String? name = 'Flutter'` — name là nullable
+2. Vào `if (name != null)` — Dart Analyzer bắt đầu promote `name` thành `String`
+3. `name = null` — reassign null **phá vỡ type promotion**: Analyzer phát hiện có thể gán null trong block → không thể chứng minh name != null tại dòng tiếp theo
+4. `print(name.length)` → Analyzer báo: `The property 'length' can't be unconditionally accessed because the receiver can be 'null'`
+
+**Key insight:** Type promotion không phải "lock" — nó là *live analysis*. Mỗi assignment đều được tính lại. Sau `name = null`, name trở về `String?` → không thể gọi `.length` trực tiếp.
+
+**Cách fix:** Dùng `name?.length ?? 0` hoặc remove dòng `name = null`.

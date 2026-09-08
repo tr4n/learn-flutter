@@ -469,19 +469,261 @@ class LoadingSpinner extends StatefulWidget {
 - Dùng `TickerProviderStateMixin` (không phải Single)
 - Override `didUpdateWidget` để detect `isLoading` thay đổi
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Ticker là gì trong Flutter?"**
-   - Object receive VSync callbacks và drive animation forward
-   - TickerProvider tạo Ticker được sync với display refresh rate
-   - Khi widget dispose → ticker phải stop để tránh memory leak
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `SingleTickerProviderStateMixin` và `TickerProviderStateMixin`?"**
-   - Single: chỉ cấp 1 Ticker (cho 1 AnimationController)
-   - Multi: cấp nhiều Ticker (cho nhiều AnimationController)
-   - Single có assertion: tạo 2 controller sẽ throw error trong debug
+---
 
-3. **"Tại sao `AnimatedBuilder` tốt hơn `addListener + setState` cho animation?"**
-   - setState rebuild toàn bộ subtree từ widget đó
-   - AnimatedBuilder chỉ rebuild phần trong `builder` callback
-   - Transition widgets (FadeTransition, SlideTransition) tốt nhất — paint layer trực tiếp, không rebuild Widget
+#### Q1 [Junior] — "Ticker là gì trong Flutter? Vai trò của nó trong animation?"
+
+**Trả lời chuẩn:**
+
+`Ticker` là object nhận **VSync callbacks** từ display hardware và drive animation forward. Mỗi khi màn hình chuẩn bị vẽ frame mới (60fps = mỗi ~16.67ms), `SchedulerBinding` phát VSync signal đến tất cả Tickers đang active.
+
+```
+Display Hardware → VSync signal (60fps)
+    ↓
+SchedulerBinding._handleBeginFrame()
+    ↓
+Mỗi Ticker nhận callback: ticker.onTick(Duration elapsed)
+    ↓
+AnimationController.notifyListeners()
+    ↓
+AnimatedBuilder.builder() được rebuild / FadeTransition repaint
+```
+
+**TickerProvider** (mixin `SingleTickerProviderStateMixin`) tạo Ticker được gắn với State lifecycle — khi widget offscreen (deactivated), Ticker tự pause để không waste CPU.
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `SingleTickerProviderStateMixin` và `TickerProviderStateMixin`?"
+
+**Trả lời chuẩn:**
+
+| | `SingleTickerProviderStateMixin` | `TickerProviderStateMixin` |
+|---|---|---|
+| **Số Ticker** | Đúng 1 | Nhiều (không giới hạn) |
+| **Dùng cho** | 1 `AnimationController` | Nhiều `AnimationController` |
+| **Debug assertion** | Throw nếu tạo > 1 controller | Không giới hạn |
+| **Performance** | Tốt hơn một chút (simpler) | Overhead nhỏ hơn |
+
+```dart
+// ✅ Single: tab animation (1 controller)
+class _TabState extends State<TabWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  
+  @override void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: ...);
+    // Tạo 1 controller thứ 2 → assert fail trong debug mode
+  }
+}
+
+// ✅ Multi: staggered animations (nhiều controllers)
+class _StaggerState extends State<StaggerWidget>
+    with TickerProviderStateMixin {
+  late AnimationController _enter, _exit, _fade; // 3 controllers OK
+}
+```
+
+---
+
+#### Q3 [Middle] — "Tại sao `AnimatedBuilder` tốt hơn `addListener + setState` cho animation?"
+
+**Trả lời chuẩn:**
+
+| | `addListener + setState` | `AnimatedBuilder` | Transition widgets |
+|---|---|---|---|
+| **Rebuild scope** | Toàn bộ `build()` của State | Chỉ `builder` callback | Không rebuild Widget — paint layer trực tiếp |
+| **Chi phí** | Cao | Trung bình | Thấp nhất |
+| **Cách dùng** | Đơn giản nhưng kém tối ưu | Cân bằng | Tốt nhất khi có thể |
+
+```dart
+// ❌ addListener + setState — rebuild toàn bộ
+_controller.addListener(() => setState(() {}));
+// → mỗi frame: build() của widget được gọi lại
+// → toàn bộ Column/Stack bên trong rebuild
+
+// ✅ AnimatedBuilder — rebuild chỉ phần cần
+AnimatedBuilder(
+  animation: _controller,
+  child: const HeavyWidget(), // ← không rebuild theo animation
+  builder: (context, child) {
+    return Transform.scale(
+      scale: _animation.value,
+      child: child, // HeavyWidget được reuse, không rebuild
+    );
+  },
+)
+
+// ✅✅ FadeTransition — không rebuild Widget, chỉ repaint layer
+FadeTransition(
+  opacity: _animation, // listenable
+  child: const HeavyWidget(),
+)
+// Flutter dùng RenderObject.markNeedsPaint() thay vì rebuild Widget tree
+```
+
+---
+
+#### Q4 [Senior] — "Ticker hoạt động thế nào? Nó connect với `SchedulerBinding` ra sao mỗi vsync frame?"
+
+**Trả lời chuẩn:**
+
+```dart
+// Ticker.start() — bắt đầu animation
+TickerFuture start() {
+  _future = TickerFuture._();
+  _startTime = null;
+  scheduleTick(); // đăng ký callback
+  return _future!;
+}
+
+// Ticker.scheduleTick()
+void scheduleTick() {
+  _animationId = SchedulerBinding.instance
+      .scheduleFrameCallback(_tick); // đăng ký 1 callback cho frame tiếp theo
+}
+
+// Ticker._tick(Duration timeStamp) — được gọi bởi SchedulerBinding mỗi frame
+void _tick(Duration timeStamp) {
+  _startTime ??= timeStamp;
+  _onTick(timeStamp - _startTime!); // gọi callback với elapsed time
+  if (shouldScheduleTick) scheduleTick(); // đăng ký lại cho frame tiếp theo
+}
+```
+
+**`SchedulerBinding.scheduleFrameCallback`** khác với `scheduleFrame()`:
+- `scheduleFrame()`: yêu cầu Flutter produce một frame (trigger vsync)
+- `scheduleFrameCallback()`: đăng ký callback sẽ được gọi trong frame tiếp theo
+
+**VSync off-screen:** Khi `State.deactivate()` được gọi, `TickerProviderStateMixin.deactivate()` gọi `ticker.muted = true` → Ticker không gọi callback nữa → không waste CPU khi widget không visible.
+
+---
+
+#### Q5 [Middle] — "Tại sao phải `_controller.dispose()` trong `dispose()`? Điều gì xảy ra nếu không?"
+
+**Trả lời chuẩn:**
+
+`AnimationController.dispose()` làm 3 việc:
+1. `_ticker.dispose()` → Ticker hủy callback đã đăng ký với `SchedulerBinding`
+2. Xóa tất cả listeners (clear listener list)
+3. Đánh dấu controller là disposed (assert nếu dùng sau)
+
+**Nếu không dispose:**
+- Ticker vẫn nhận VSync callbacks mỗi frame → CPU waste
+- Ticker giữ reference đến State → **memory leak** (State không bị GC dù widget đã unmount)
+- Nếu animation đang chạy → tiếp tục chạy vô thời hạn background
+- Có thể gây "Ticker still active after State.dispose()" error trong debug mode
+
+```dart
+// Flutter warning khi không dispose ticker:
+// 'A Ticker was disposed with an active TickerFuture.'
+// 'The framework may not be able to GC this State.'
+
+@override
+void dispose() {
+  _controller.dispose(); // ← luôn dispose trước super.dispose()
+  super.dispose();
+}
+```
+
+---
+
+#### Q6 [Senior] — "`vsync: this` có nghĩa gì? TickerProvider làm gì khi widget offscreen?"
+
+**Trả lời chuẩn:**
+
+`vsync: this` truyền State (implement `TickerProvider`) vào `AnimationController`. Controller dùng TickerProvider để:
+1. Tạo `Ticker` khi cần (`createTicker(onTick)`)
+2. Liên kết Ticker với lifecycle của widget
+
+**Khi widget offscreen (tab ẩn, Navigator route bị covered):**
+
+```
+State.deactivate()
+  ↓
+TickerProviderStateMixin.deactivate()
+  ↓
+ticker.muted = true  // mute tất cả Tickers
+  ↓
+Ticker.muted setter:
+  if (muted) unscheduleTick() // hủy pending frame callback
+  → VSync callbacks không còn xảy ra → CPU = 0% cho animation
+```
+
+**Khi widget quay lại visible:**
+
+```
+State.activate()
+  ↓
+TickerProviderStateMixin.activate()
+  ↓
+ticker.muted = false // unmute
+  ↓
+Ticker.scheduleTick() // đăng ký lại → animation tiếp tục
+```
+
+Đây là lý do animation tự pause khi bạn switch tab và resume khi quay lại — hoàn toàn tự động qua TickerProvider mechanism.
+
+---
+
+#### Q7 [Trace Code] — "Animation leak: xác định vấn đề và hậu quả"
+
+```dart
+class AnimatedCard extends StatefulWidget {
+  const AnimatedCard({super.key});
+  @override
+  State<AnimatedCard> createState() => _AnimatedCardState();
+}
+
+class _AnimatedCardState extends State<AnimatedCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
+    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+
+    // Start repeating animation
+    _controller.repeat(reverse: true);
+
+    // Listener để update ngoài animation
+    _controller.addListener(() {
+      print('Value: ${_controller.value}');
+    });
+  }
+
+  // ❌ Không có dispose() override!
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(opacity: _animation, child: const Card(child: Text('Hello')));
+  }
+}
+```
+
+**Vấn đề khi navigate away:**
+
+1. `State.dispose()` được gọi (default implementation)
+2. `TickerProviderStateMixin.dispose()` chạy, nhưng **chỉ dispose Ticker nếu `_controller` đã dispose** — vì controller không bị dispose, Ticker vẫn active
+3. Flutter detect: **"A Ticker was disposed with an active TickerFuture"** → throw in debug mode
+4. `addListener` callback (`print`) vẫn chạy → vì listener không được remove
+5. State object không bị GC → **memory leak** (listener giữ reference đến State)
+
+**Fix:**
+```dart
+@override
+void dispose() {
+  _controller.dispose(); // dispose controller → dispose ticker, clear listeners
+  super.dispose();
+}
+```

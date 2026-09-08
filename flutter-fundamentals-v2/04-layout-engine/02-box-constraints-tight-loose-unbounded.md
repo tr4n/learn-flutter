@@ -346,17 +346,252 @@ Widget build(BuildContext context) {
 5. Tại sao overflow xảy ra?
 6. Sửa thế nào?
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Tight vs Loose constraint là gì?"**
-   - Tight: `min == max` — widget bị ép vào một size cụ thể
-   - Loose: `min == 0` — widget tự do chọn size từ 0 đến max
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Tại sao `ListView` trong `Column` gây lỗi?"**
-   - Column truyền maxHeight=∞ xuống ListView
-   - ListView cần bounded maxHeight để biết viewport size
-   - Fix: wrap ListView trong `Expanded` để có tight height constraint
+---
 
-3. **"Sự khác biệt giữa `Expanded` và `Flexible`?"**
-   - `Expanded = Flexible(fit: FlexFit.tight)` — tight, fill remaining space hoàn toàn
-   - `Flexible(fit: FlexFit.loose)` — flex nhưng không bắt buộc fill — child có thể nhỏ hơn
+#### Q1 [Junior] — "Tight, Loose, và Unbounded constraint khác nhau thế nào?"
+
+**Trả lời chuẩn:**
+
+| Loại | Đặc điểm | Ví dụ |
+|---|---|---|
+| **Tight** | `min == max` | Scaffold body: `BoxConstraints(390, 390, 844, 844)` |
+| **Loose** | `min == 0` | Center truyền cho child: `BoxConstraints(0, 390, 0, 844)` |
+| **Unbounded** | `max == infinity` | Column truyền cho children: `BoxConstraints(0, 390, 0, ∞)` |
+
+```dart
+// Tight — widget bị ép đúng một size, không có lựa chọn
+BoxConstraints.tight(Size(100, 100))
+// → minWidth=100, maxWidth=100, minHeight=100, maxHeight=100
+
+// Loose — widget tự chọn size từ 0 đến max
+BoxConstraints.loose(Size(300, 500))
+// → minWidth=0, maxWidth=300, minHeight=0, maxHeight=500
+
+// Unbounded — width hoặc height không giới hạn
+BoxConstraints(minWidth: 0, maxWidth: double.infinity, ...)
+// Widget phải có "natural size" — không thể chọn infinity
+```
+
+---
+
+#### Q2 [Junior] — "Tại sao `ListView` bên trong `Column` gây lỗi? Cách fix?"
+
+**Trả lời chuẩn:**
+
+`Column` truyền **unbounded height** (`maxHeight = ∞`) xuống các children. `ListView` cần biết viewport height để tính scroll position và virtualize items — nó không thể hoạt động với `maxHeight = ∞`.
+
+```
+Column (nhận tight height từ Scaffold)
+  ↓ truyền BoxConstraints(0..390, 0..∞) xuống children
+  ListView
+    → muốn biết viewport height để layout → nhận ∞ → "Cannot provide width/height = infinity"
+    → throw: RenderBox was not laid out
+```
+
+**Fixes:**
+```dart
+// Fix 1: Expanded — cho ListView tight height (remaining space)
+Column(children: [
+  const Text('Header'),
+  Expanded(child: ListView.builder(...)), // ListView nhận tight height
+])
+
+// Fix 2: SizedBox — constrain ListView cụ thể
+Column(children: [
+  SizedBox(height: 300, child: ListView(...)),
+])
+
+// Fix 3: Nếu list nhỏ + không cần virtualization
+Column(children: [
+  ...items.map((i) => ListTile(...)).toList(),
+])
+```
+
+---
+
+#### Q3 [Middle] — "Sự khác biệt giữa `Expanded` và `Flexible`? Khi nào dùng cái nào?"
+
+**Trả lời chuẩn:**
+
+`Expanded` là `Flexible(fit: FlexFit.tight)` — hai class khác nhau nhưng `Expanded` về cơ bản delegate về `Flexible`:
+
+| | `Expanded` | `Flexible(fit: FlexFit.loose)` |
+|---|---|---|
+| **Constraint cho child** | Tight (buộc fill flex share) | Loose (có thể nhỏ hơn flex share) |
+| **Child nhận được** | Chính xác `flex share` pixels | Tối đa `flex share` pixels |
+| **Ví dụ** | Container fill đúng phần chia | Text chỉ chiếm width cần thiết |
+
+```dart
+Row(children: [
+  Expanded(child: Container(color: Colors.red)),    // fill 1/2 width chính xác
+  Flexible(child: Text('short')),                    // chỉ dùng text width, không fill
+])
+
+// vs.
+
+Row(children: [
+  Expanded(child: Container(color: Colors.red)),    // fill 1/2
+  Expanded(child: Text('short')),                   // fill 1/2, text bị stretch
+])
+```
+
+**Rule of thumb:** Dùng `Expanded` khi muốn fill space. Dùng `Flexible` khi muốn widget có thể nhỏ hơn share nếu nội dung nhỏ.
+
+---
+
+#### Q4 [Senior] — "Unbounded constraint (`maxWidth = infinity`) gây vấn đề gì? Tại sao `Text` crash trong `Row` khi không có constraint?"
+
+**Trả lời chuẩn:**
+
+`Row` truyền **unbounded width** (`maxWidth = ∞`) cho non-flex children. `Text` widget trong trường hợp bình thường cần biết `maxWidth` để biết khi nào cần wrap sang dòng mới.
+
+**Text trong Row không có constraint:**
+```
+Row truyền BoxConstraints(0..∞, 0..height) → Text
+Text: "maxWidth = ∞ → tôi render thành 1 dòng infinitely wide"
+Text trả size: (1000px, 20px) → Row tổng cộng = 1000px > screen width
+→ Overflow!
+```
+
+**Không crash nhưng overflow** — đây là lý do thấy yellow-black overflow stripe.
+
+**Khi nào crash thực sự:** `RenderBox` yêu cầu `maxWidth` là finite trong một số trường hợp specific (e.g., `RenderFlex` khi tính intrinsic width với unbounded constraint). Lỗi: `BoxConstraints forces an infinite width.`
+
+```dart
+// Row → Column → Row pattern: Column truyền unbounded height
+// Row con nhận bounded width từ Column nhưng truyền unbounded width cho Text
+Row(children: [
+  Expanded(child: Text('...')), // ✅ Expanded → tight width constraint cho Text
+  Text('...'),                  // ❌ unbounded → overflow
+])
+```
+
+---
+
+#### Q5 [Middle] — "`Container()` không có child, không có width/height: size là bao nhiêu? Tại sao?"
+
+**Trả lời chuẩn:**
+
+`Container` không có child và không có explicit size → **match parent constraint**:
+
+```dart
+// Trong Scaffold body (tight constraint: 390×844)
+Container()  // → size = 390×844 (fill parent)
+
+// Trong Center (loose constraint: 0..390 × 0..844)
+Center(child: Container()) // → size = 0×0 (shrink to minimum)
+
+// Trong Row (unbounded width)
+Row(children: [Container(color: Colors.red)]) // → size = 0×0 (no child, shrink)
+```
+
+**Quy tắc của `Container`:**
+- **Có child:** wrap child (tight constraint = child size)
+- **Không có child + tight constraint:** fill parent
+- **Không có child + loose constraint:** minimum size (thường 0×0)
+- **Có `width`/`height` explicit:** dùng giá trị đó bất kể constraint
+
+```dart
+// Debug: dùng LayoutBuilder để xem container nhận constraint gì
+LayoutBuilder(builder: (ctx, c) {
+  debugPrint('Container constraints: $c');
+  return Container(color: Colors.red);
+})
+```
+
+---
+
+#### Q6 [Senior] — "`FlexFit.tight` vs `FlexFit.loose` trong `RenderFlex.performLayout()` — cơ chế nội bộ?"
+
+**Trả lời chuẩn:**
+
+`RenderFlex` (RenderObject của Row/Column) có 2-pass layout:
+
+**Pass 1 — Non-flex children:**
+```dart
+for (final child in nonFlexChildren) {
+  child.layout(innerConstraints, parentUsesSize: true);
+  totalFlex += 0; // không flex
+  allocatedSize += child.size.mainSize;
+}
+freeSpace = mainAxisExtent - allocatedSize;
+```
+
+**Pass 2 — Flex children (Expanded/Flexible):**
+```dart
+for (final child in flexChildren) {
+  final flexShare = freeSpace * (child.flex / totalFlex);
+  
+  if (child.fit == FlexFit.tight) {
+    // Buộc child fill đúng flexShare
+    child.layout(BoxConstraints.tight(flexShare), parentUsesSize: true);
+  } else { // FlexFit.loose
+    // Cho phép child nhỏ hơn flexShare
+    child.layout(BoxConstraints(maxMainAxis: flexShare), parentUsesSize: true);
+  }
+}
+```
+
+**Kết quả:** `FlexFit.tight` (Expanded) → child **phải** fill `flexShare`. `FlexFit.loose` (Flexible) → child **có thể** nhỏ hơn. Unused space trong `FlexFit.loose` không được redistribute — nó trở thành "wasted" space trong Row/Column.
+
+---
+
+#### Q7 [Trace Code] — "`Column` chứa `ListView` không có `Expanded`: crash hay không? Tại sao? Cách fix?"
+
+```dart
+// Code A
+Widget buildA() {
+  return Scaffold(
+    body: Column(
+      children: [
+        const Text('Header'),
+        ListView(
+          children: List.generate(10, (i) => ListTile(title: Text('Item $i'))),
+        ),
+      ],
+    ),
+  );
+}
+
+// Code B
+Widget buildB() {
+  return Scaffold(
+    body: Column(
+      children: [
+        const Text('Header'),
+        Expanded(
+          child: ListView(
+            children: List.generate(10, (i) => ListTile(title: Text('Item $i'))),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// Code C
+Widget buildC() {
+  return Scaffold(
+    body: ListView(
+      children: [
+        const Text('Header'),
+        ...List.generate(10, (i) => ListTile(title: Text('Item $i'))),
+      ],
+    ),
+  );
+}
+```
+
+**Code A:** ❌ **Crash** — Column truyền `maxHeight = ∞` cho ListView. ListView không biết viewport height → `RenderViewport: hasSize is false` hoặc `Cannot size parent that does not have a known height`.
+
+**Code B:** ✅ **OK** — Expanded force Column chia remaining space (sau Header) cho ListView → ListView nhận tight height → biết viewport → layout và scroll đúng.
+
+**Code C:** ✅ **OK** — Không có nested Column+ListView. ListView scroll toàn bộ nội dung bao gồm cả Header. Đây là cách đơn giản nhất nếu không cần Header fixed.
+
+**Khi nào dùng Code B vs Code C:**
+- Code B: Header phải fixed (không scroll theo), content scroll độc lập
+- Code C: Header scroll cùng với content → UX tự nhiên hơn

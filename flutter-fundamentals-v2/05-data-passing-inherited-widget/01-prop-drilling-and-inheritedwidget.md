@@ -322,17 +322,260 @@ class ScrollPositionInherited extends InheritedWidget {
 - `updateShouldNotify` compare theme object
 - Load pref trong `initState`, save trong `toggleTheme`
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Prop Drilling là gì và tại sao nó là vấn đề?"**
-   - Truyền data qua nhiều tầng widget trung gian không cần data đó
-   - Vấn đề: verbose, brittle, khó refactor, coupling cao
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"InheritedWidget hoạt động như thế nào?"**
-   - Đặt widget trong ancestor tree
-   - Descendant gọi `dependOnInheritedWidgetOfExactType` để đăng ký dependency
-   - Khi `updateShouldNotify` = true → chỉ rebuild registered dependents
+---
 
-3. **"`updateShouldNotify` trả về false có nghĩa là gì?"**
-   - Subscribers KHÔNG được rebuild — data không thay đổi
-   - Giúp skip rebuild không cần thiết → performance optimization
+#### Q1 [Junior] — "Prop Drilling là gì và tại sao nó là vấn đề?"
+
+**Trả lời chuẩn:**
+
+**Prop Drilling** xảy ra khi phải truyền data qua nhiều tầng widget trung gian không cần data đó — chỉ để chuyển data xuống cho widget sâu hơn.
+
+```dart
+// Prop drilling: UserProfile chỉ "trung chuyển" userId, không dùng
+class HomePage extends StatelessWidget {
+  final String userId;
+  @override Widget build(context) => Column(children: [
+    UserProfile(userId: userId),   // chỉ pass xuống
+    const OtherContent(),
+  ]);
+}
+
+class UserProfile extends StatelessWidget {
+  final String userId;             // nhận nhưng không dùng — chỉ truyền tiếp
+  @override Widget build(context) => UserAvatar(userId: userId);
+}
+
+class UserAvatar extends StatelessWidget {
+  final String userId;             // widget thực sự cần data
+  @override Widget build(context) => Image.network('api/avatar/$userId');
+}
+```
+
+**Vấn đề:**
+- **Verbose:** Mỗi tầng phải khai báo field và truyền prop
+- **Brittle:** Thêm field mới → phải sửa tất cả các tầng trung gian
+- **Coupling cao:** Widget trung gian biết về data structure mà nó không cần
+- **Refactor khó:** Move widget sang vị trí khác → phải rewire prop chain
+
+---
+
+#### Q2 [Junior] — "`InheritedWidget` hoạt động như thế nào? Tại sao chỉ rebuild `registered dependents`?"
+
+**Trả lời chuẩn:**
+
+`InheritedWidget` là ancestor widget đặc biệt — descendants có thể "đăng ký" để nhận notification khi data thay đổi:
+
+```dart
+// 1. Define InheritedWidget
+class UserData extends InheritedWidget {
+  final String userId;
+  const UserData({required this.userId, required super.child, super.key});
+
+  static UserData of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<UserData>()!;
+
+  @override
+  bool updateShouldNotify(UserData old) => userId != old.userId;
+}
+
+// 2. Đặt trong ancestor tree
+UserData(userId: 'u123', child: const App())
+
+// 3. Descendant đọc và đăng ký dependency — không cần truyền qua trung gian
+class UserAvatar extends StatelessWidget {
+  @override Widget build(context) {
+    final data = UserData.of(context); // đăng ký dependency
+    return Image.network('api/avatar/${data.userId}');
+  }
+}
+```
+
+**Cơ chế "chỉ rebuild dependents":** Khi `UserData` được replace (e.g., userId thay đổi), Flutter gọi `updateShouldNotify()`. Nếu true → chỉ các Elements đã gọi `dependOnInheritedWidgetOfExactType<UserData>()` được mark dirty. Các widget khác không đăng ký → không rebuild.
+
+---
+
+#### Q3 [Middle] — "`updateShouldNotify` trả về false có nghĩa gì? Khi nào xảy ra?"
+
+**Trả lời chuẩn:**
+
+```dart
+@override
+bool updateShouldNotify(UserData old) => userId != old.userId;
+```
+
+Khi `false`: Flutter **bỏ qua** việc notify dependents — ngay cả khi InheritedWidget object mới được tạo.
+
+**Khi nào xảy ra:** Parent của InheritedWidget rebuild → tạo `InheritedWidget` instance mới → Flutter gọi `updateShouldNotify(oldWidget)`. Nếu data không thực sự thay đổi (e.g., `userId` vẫn như cũ) → `false` → descendants không rebuild.
+
+```dart
+// Scenario: Parent rebuild nhưng userId không đổi
+setState(() => _count++); // parent counter thay đổi, không liên quan userId
+
+// Flutter:
+// 1. Parent.build() → tạo UserData(userId: 'u123') MỚI (object mới)
+// 2. Flutter gọi updateShouldNotify(oldUserData)
+// 3. 'u123' != 'u123' → false → KHÔNG notify dependents
+// → UserAvatar KHÔNG rebuild dù parent rebuild
+```
+
+**Tầm quan trọng:** `updateShouldNotify` là optimization cốt lõi — tránh cascade rebuild không cần thiết khi parent rebuild nhưng data không thay đổi.
+
+---
+
+#### Q4 [Senior] — "`InheritedWidget.updateShouldNotify()` được gọi khi nào chính xác? Dependency registration hoạt động thế nào?"
+
+**Trả lời chuẩn:**
+
+**Khi `updateShouldNotify` được gọi:**
+1. `InheritedElement.update(newWidget)` được gọi khi parent rebuild
+2. Trước khi update, Flutter gọi `updateShouldNotify(oldWidget)`
+3. Nếu true → `InheritedElement.notifyClients()` → iterate `_dependents` map và mark chúng dirty
+
+**Dependency registration mechanism:**
+```dart
+// Khi UserAvatar.build() gọi UserData.of(context):
+T? dependOnInheritedWidgetOfExactType<T extends InheritedWidget>() {
+  // 1. Walk up element tree để tìm InheritedElement
+  final InheritedElement? ancestor = _inheritedElements[T];
+  
+  if (ancestor != null) {
+    // 2. Đăng ký: thêm current element vào ancestor._dependents
+    return dependOnInheritedElement(ancestor) as T;
+  }
+  return null;
+}
+
+// InheritedElement.updateDependencies()
+void updateDependencies(Element dependent, Object? aspect) {
+  _dependents[dependent] = null; // key = dependent element
+}
+```
+
+**`_inheritedElements` cache:** Mỗi Element có một `Map<Type, InheritedElement>` được populate khi walk up tree — O(1) lookup sau lần đầu, không phải O(depth) mỗi lần.
+
+---
+
+#### Q5 [Middle] — "Tại sao `InheritedWidget` chỉ rebuild registered dependents, không phải toàn bộ subtree?"
+
+**Trả lời chuẩn:**
+
+`InheritedElement` duy trì `Map<Element, Object?> _dependents` — chỉ chứa elements đã gọi `dependOnInheritedWidgetOfExactType`. Khi notify, chỉ các elements trong map này được mark dirty:
+
+```dart
+// InheritedElement.notifyClients() — gọi khi updateShouldNotify = true
+@override
+void notifyClients(InheritedWidget oldWidget) {
+  for (final Element dependent in _dependents.keys) {
+    // Chỉ notify từng dependent đã đăng ký
+    notifyDependent(oldWidget, dependent);
+    // → dependent.didChangeDependencies()
+    // → dependent.markNeedsBuild()
+  }
+  // Các widget khác trong subtree KHÔNG được notify
+}
+```
+
+**Điểm quan trọng:** Nếu widget con trong subtree không gọi `dependOnInheritedWidgetOfExactType<UserData>()` (e.g., chỉ dùng `context.read()` hoặc không dùng UserData), nó **không nằm trong `_dependents`** → không rebuild dù UserData thay đổi.
+
+---
+
+#### Q6 [Middle] — "`InheritedWidget` với mutable state: vấn đề gì nếu mutate trực tiếp?"
+
+**Trả lời chuẩn:**
+
+`InheritedWidget` phải **immutable** (fields là `final`). Nếu mutate trực tiếp:
+
+```dart
+// ❌ Sai — mutate trực tiếp (giả sử không có final)
+class BadData extends InheritedWidget {
+  List<String> items; // không final
+  
+  void addItem(String item) {
+    items.add(item); // mutate directly
+    // updateShouldNotify KHÔNG được gọi — Flutter không biết có thay đổi
+    // → Dependents KHÔNG rebuild → UI không update!
+  }
+}
+```
+
+**Tại sao không hoạt động:** `updateShouldNotify(oldWidget)` chỉ được gọi khi `InheritedWidget` được **replace** (parent rebuild tạo widget mới). Nếu mutate field của widget hiện tại, không có replacement → không có notify.
+
+**Pattern đúng:** Kết hợp `StatefulWidget` (tạo widget mới) + `InheritedWidget` (expose data):
+
+```dart
+class DataProvider extends StatefulWidget {
+  // Giữ State mutable, thay thế InheritedWidget khi state thay đổi
+  @override State<DataProvider> createState() => _DataProviderState();
+}
+
+class _DataProviderState extends State<DataProvider> {
+  List<String> _items = [];
+  
+  void addItem(String item) {
+    setState(() {
+      _items = [..._items, item]; // tạo list MỚI (immutable pattern)
+    }); // → parent rebuild → InheritedWidget MỚI → updateShouldNotify → notify
+  }
+  
+  @override Widget build(context) => DataInherited(items: _items, child: widget.child);
+}
+```
+
+---
+
+#### Q7 [Trace Code] — "Xác định widget nào rebuild khi `InheritedWidget` thay đổi"
+
+```dart
+class CounterData extends InheritedWidget {
+  final int count;
+  const CounterData({required this.count, required super.child, super.key});
+  
+  static CounterData of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<CounterData>()!;
+  
+  static CounterData read(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<CounterData>()!;
+
+  @override
+  bool updateShouldNotify(CounterData old) => count != old.count;
+}
+
+class WidgetA extends StatelessWidget {
+  @override Widget build(context) {
+    final count = CounterData.of(context).count; // dùng dependOn
+    print('A build: $count');
+    return Text('$count');
+  }
+}
+
+class WidgetB extends StatelessWidget {
+  @override Widget build(context) {
+    print('B build');
+    return const Text('Static B');
+  }
+}
+
+class WidgetC extends StatelessWidget {
+  @override Widget build(context) {
+    CounterData.read(context); // dùng getInherited (không đăng ký dependency)
+    print('C build');
+    return const Text('C reads but not watches');
+  }
+}
+```
+
+**Khi count thay đổi từ 0 → 1:**
+
+```
+A build: 1
+```
+
+**Giải thích:**
+- **WidgetA:** gọi `dependOnInheritedWidgetOfExactType` → registered trong `_dependents` → **rebuild** → "A build: 1"
+- **WidgetB:** không tương tác với `CounterData` → **không rebuild** → không in gì
+- **WidgetC:** gọi `getInheritedWidgetOfExactType` (không đăng ký dependency) → **không rebuild** → không in gì
+- **Nếu có widget D dùng `const`:** Cũng không rebuild (same reason as B)

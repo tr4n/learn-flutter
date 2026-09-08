@@ -389,18 +389,306 @@ class ProfileModel extends ChangeNotifier {
 - Dùng `ListenableBuilder` để chỉ rebuild badge, không rebuild toàn AppBar
 - Cart count animation khi thêm/xóa item
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"ChangeNotifier hoạt động như thế nào?"**
-   - Giữ danh sách listeners
-   - `notifyListeners()` gọi tất cả listeners khi state thay đổi
-   - Implement `Listenable` interface
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa `ValueNotifier` và `ChangeNotifier`?"**
-   - `ValueNotifier<T>`: single value, auto notify khi `.value` thay đổi
-   - `ChangeNotifier`: complex state với nhiều fields, manual gọi `notifyListeners()`
+---
 
-3. **"Tại sao `InheritedNotifier` tiện hơn `InheritedWidget + StatefulWidget`?"**
-   - Không cần StatefulWidget riêng chỉ để gọi setState
-   - Tự động rebuild khi Notifier.notifyListeners() được gọi
-   - Less boilerplate — 1 class thay vì 3
+#### Q1 [Junior] — "`ChangeNotifier` hoạt động như thế nào? Implement `Listenable` là gì?"
+
+**Trả lời chuẩn:**
+
+`ChangeNotifier` implement `Listenable` interface, tức là nó có thể được "listened to" — các observers đăng ký listener và nhận callback khi state thay đổi:
+
+```dart
+class CartModel extends ChangeNotifier {
+  final List<Item> _items = [];
+  List<Item> get items => List.unmodifiable(_items);
+  
+  void addItem(Item item) {
+    _items.add(item);
+    notifyListeners(); // thông báo tất cả listeners
+  }
+  
+  void removeItem(String id) {
+    _items.removeWhere((i) => i.id == id);
+    notifyListeners();
+  }
+}
+
+// Đăng ký listener thủ công:
+final cart = CartModel();
+cart.addListener(() {
+  print('Cart changed: ${cart.items.length} items');
+});
+cart.addItem(Item('apple')); // → prints: "Cart changed: 1 items"
+```
+
+**`Listenable` interface:** `addListener(VoidCallback)` và `removeListener(VoidCallback)` — bất kỳ widget hoặc object nào có thể "listen" mà không cần biết implementation chi tiết.
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `ValueNotifier` và `ChangeNotifier`?"
+
+**Trả lời chuẩn:**
+
+| | `ValueNotifier<T>` | `ChangeNotifier` |
+|---|---|---|
+| **State** | Một giá trị duy nhất (`.value`) | Nhiều fields phức tạp |
+| **Notify** | Tự động khi `.value` được set (nếu != old) | Thủ công gọi `notifyListeners()` |
+| **Widgets** | `ValueListenableBuilder<T>` | `AnimatedBuilder` hoặc Provider/Consumer |
+| **Khi dùng** | Counter, bool flag, single string | Shopping cart, form state, user profile |
+
+```dart
+// ValueNotifier — đơn giản, auto-notify
+final counter = ValueNotifier<int>(0);
+counter.value++; // tự động notify listeners
+
+ValueListenableBuilder<int>(
+  valueListenable: counter,
+  builder: (ctx, count, _) => Text('$count'),
+)
+
+// ChangeNotifier — complex state
+class UserProfile extends ChangeNotifier {
+  String _name = '';
+  String _email = '';
+  bool _isLoading = false;
+  
+  // Phải gọi notifyListeners() thủ công
+  Future<void> load() async {
+    _isLoading = true;
+    notifyListeners(); // notify khi loading starts
+    final data = await api.getProfile();
+    _name = data.name;
+    _email = data.email;
+    _isLoading = false;
+    notifyListeners(); // notify khi data loaded
+  }
+}
+```
+
+---
+
+#### Q3 [Middle] — "Tại sao `InheritedNotifier` tiện hơn `InheritedWidget + StatefulWidget`?"
+
+**Trả lời chuẩn:**
+
+Để làm `InheritedWidget` reactive, cần kết hợp 3 class:
+1. `InheritedWidget` — expose data
+2. `StatefulWidget` — hold mutable state và call `setState()` khi Notifier thay đổi
+3. `ChangeNotifier` — actual data model
+
+`InheritedNotifier` eliminates lớp 2:
+
+```dart
+// ❌ Cách cũ: 3 classes
+class CounterNotifier extends ChangeNotifier {
+  int _count = 0;
+  int get count => _count;
+  void increment() { _count++; notifyListeners(); }
+}
+
+class CounterProvider extends StatefulWidget { ... }
+class _CounterProviderState extends State<CounterProvider> {
+  final notifier = CounterNotifier();
+  @override void initState() { notifier.addListener(_update); }
+  void _update() => setState(() {}); // boilerplate!
+  @override Widget build(context) => CounterInherited(notifier: notifier, child: widget.child);
+}
+
+class CounterInherited extends InheritedWidget { ... }
+
+// ✅ InheritedNotifier: chỉ 2 classes
+class CounterNotifier extends ChangeNotifier {
+  int _count = 0;
+  int get count => _count;
+  void increment() { _count++; notifyListeners(); }
+}
+
+class CounterScope extends InheritedNotifier<CounterNotifier> {
+  const CounterScope({required super.notifier, required super.child, super.key});
+  
+  static CounterNotifier of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<CounterScope>()!.notifier!;
+}
+// InheritedNotifier tự listen Notifier và update khi notifyListeners() được gọi
+```
+
+---
+
+#### Q4 [Senior] — "`ChangeNotifier._listeners` là gì? `notifyListeners()` iterate thế nào?"
+
+**Trả lời chuẩn:**
+
+`ChangeNotifier` dùng một **fixed-size array** (`ObserverList`) thay vì `List` thông thường để track listeners — tối ưu cho trường hợp thêm/xóa listener thường xuyên:
+
+```dart
+// Flutter source (simplified)
+class ChangeNotifier implements Listenable {
+  int _count = 0;
+  static final List<VoidCallback?> _emptyListeners = List<VoidCallback?>.filled(0, null);
+  List<VoidCallback?> _listeners = _emptyListeners;
+  int _notificationCallStackDepth = 0;
+  int _reentrantlyRemovedListeners = 0;
+  bool _debugDisposed = false;
+
+  void notifyListeners() {
+    final int end = _count;
+    for (int i = 0; i < end; i++) {
+      _listeners[i]?.call(); // null check vì removeListener làm null (không xóa slot)
+    }
+    // Sau khi iterate, compact list (xóa nulls)
+    if (_reentrantlyRemovedListeners > 0) {
+      _removeNullListeners();
+    }
+  }
+}
+```
+
+**Concurrent modification safety:** Nếu một listener gọi `removeListener` trong khi `notifyListeners` đang iterate, slot được set thành null (không xóa ngay để tránh index shift). Sau khi iterate xong, nulls được remove.
+
+**Vấn đề với Lists lớn:** 10000+ listeners → iterate O(n) mỗi `notifyListeners()`. `ChangeNotifier` được design cho O(n) nhỏ. Với fan-out lớn, cân nhắc `StreamController` (more efficient broadcasting).
+
+---
+
+#### Q5 [Middle] — "`ValueNotifier<T>` setter so sánh bằng `==` hay `identical`? Ảnh hưởng rebuild?"
+
+**Trả lời chuẩn:**
+
+`ValueNotifier` dùng **`==`** (value equality), không phải `identical` (reference equality):
+
+```dart
+// ValueNotifier source
+set value(T newValue) {
+  if (_value == newValue) return; // == check, không phải identical
+  _value = newValue;
+  notifyListeners();
+}
+```
+
+**Ảnh hưởng với các loại data:**
+
+```dart
+// Primitive types (int, String, bool): == và identical thường giống nhau
+final counter = ValueNotifier<int>(0);
+counter.value = 0; // 0 == 0 → true → KHÔNG notify → ✅ đúng
+
+// Object với override ==:
+final name = ValueNotifier<String>('Alice');
+name.value = 'Alice'; // 'Alice' == 'Alice' → true → KHÔNG notify → ✅ đúng
+
+// Object KHÔNG override == (default reference equality):
+final list = ValueNotifier<List<int>>([1, 2, 3]);
+list.value = [1, 2, 3]; // [1,2,3] == [1,2,3] → true (List override ==) → KHÔNG notify
+list.value = [...list.value, 4]; // new list → khác reference → notify → ✅
+
+// ⚠️ Custom object không override ==:
+class Point { final int x, y; const Point(this.x, this.y); }
+final point = ValueNotifier<Point>(const Point(1, 1));
+point.value = const Point(1, 1); // identical → true (const) → KHÔNG notify ✅
+point.value = Point(1, 1); // new instance, no == override → not identical → NOTIFY (unexpected!)
+```
+
+**Rule:** Với ValueNotifier, nên dùng `const` objects hoặc override `==` + `hashCode` cho value types.
+
+---
+
+#### Q6 [Middle] — "Khi nào `ChangeNotifier` gây memory leak? Pattern 'lắng nghe mà không removeListener'?"
+
+**Trả lời chuẩn:**
+
+Memory leak xảy ra khi Widget/Object đăng ký listener nhưng **không bao giờ remove** khi không còn cần:
+
+```dart
+// ❌ Memory leak
+class _MyState extends State<MyWidget> {
+  final CartModel cart = CartModel(); // hoặc inject từ provider
+
+  @override
+  void initState() {
+    super.initState();
+    cart.addListener(_onCartChanged); // đăng ký listener
+    // Quên removeListener trong dispose!
+  }
+
+  void _onCartChanged() { setState(() {}); }
+
+  // ❌ Không có dispose → cart._listeners vẫn giữ reference đến _onCartChanged
+  // → _MyState không được GC dù widget đã unmount
+  // → _onCartChanged tiếp tục được gọi sau khi widget unmount → crash!
+}
+
+// ✅ Đúng
+class _MyState extends State<MyWidget> {
+  @override
+  void initState() {
+    super.initState();
+    cart.addListener(_onCartChanged);
+  }
+  
+  void _onCartChanged() {
+    if (!mounted) return; // guard
+    setState(() {});
+  }
+  
+  @override
+  void dispose() {
+    cart.removeListener(_onCartChanged); // QUAN TRỌNG
+    super.dispose();
+  }
+}
+
+// ✅✅ Tốt nhất: dùng AnimatedBuilder/ValueListenableBuilder (tự cleanup)
+AnimatedBuilder(
+  animation: cart, // ChangeNotifier là Listenable
+  builder: (ctx, _) => Text('${cart.items.length} items'),
+)
+// AnimatedBuilder tự addListener trong initState và removeListener trong dispose
+```
+
+---
+
+#### Q7 [Trace Code] — "`ValueNotifier<List<Item>>` — thêm item vào list: có trigger rebuild không?"
+
+```dart
+// Setup
+final items = ValueNotifier<List<String>>(['apple', 'banana']);
+
+ValueListenableBuilder<List<String>>(
+  valueListenable: items,
+  builder: (ctx, list, _) {
+    print('rebuild: $list');
+    return ListView(
+      children: list.map((i) => Text(i)).toList(),
+    );
+  },
+)
+
+// Scenario A: mutate existing list
+items.value.add('cherry'); // mutate directly, KHÔNG reassign
+print('After add: ${items.value}'); // ['apple', 'banana', 'cherry']
+
+// Scenario B: reassign với list mới
+items.value = [...items.value, 'date'];
+print('After reassign: ${items.value}'); // ['apple', 'banana', 'cherry', 'date']
+```
+
+**Scenario A:** `items.value.add('cherry')` — mutate list trực tiếp, **KHÔNG reassign** `items.value`. `ValueNotifier.set()` **không được gọi** → `notifyListeners()` không chạy → **KHÔNG rebuild** ValueListenableBuilder.
+
+Nhưng `items.value` vẫn là `['apple', 'banana', 'cherry']` (vì List là reference type, đã bị mutate). Khi rebuild lần tiếp theo vì lý do khác → UI sẽ show 'cherry'.
+
+**Scenario B:** `items.value = [...]` — reassign `items.value`. `ValueNotifier.set()` chạy: `newValue == oldValue`? `[..., 'date'] == ['apple',...]`? → List `==` check: nếu là `List<String>`, Dart's default `operator==` cho List check deep equality → `[apple,banana,cherry] != [apple,banana,cherry,date]` → **true (different) → `notifyListeners()` → rebuild**
+
+**Output:**
+```
+# Scenario A: không có output "rebuild" mới
+After add: [apple, banana, cherry]
+
+# Scenario B:
+rebuild: [apple, banana, cherry, date]
+After reassign: [apple, banana, cherry, date]
+```
+
+**Lesson:** Luôn tạo list mới (`[...old, item]` hoặc `List.from(old)..add(item)`) thay vì mutate khi dùng với `ValueNotifier`.

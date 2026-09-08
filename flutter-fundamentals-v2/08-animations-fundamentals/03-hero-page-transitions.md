@@ -349,16 +349,280 @@ flightShuttleBuilder: (_, animation, ___, ____, _____) {
 - Tag Hero phải dynamic theo ảnh hiện tại trong PageView
 - Khi swipe sang ảnh khác, tag thay đổi → back về ảnh nào đang xem
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Tại sao Hero tag phải unique?"**
-   - Flutter tìm Hero theo tag trong Navigator overlay
-   - Duplicate tag → confuse Flutter → crash hoặc wrong animation
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Sự khác biệt giữa Hero và AnimatedContainer?"**
-   - Hero: persist element GIỮA các routes (cross-route)
-   - AnimatedContainer: animate property thay đổi trong CÙNG route
+---
 
-3. **"PageRouteBuilder vs MaterialPageRoute?"**
-   - MaterialPageRoute: default transition (slide/fade tùy platform)
-   - PageRouteBuilder: full control — custom transition, duration
+#### Q1 [Junior] — "Tại sao Hero tag phải unique? Duplicate tag gây ra gì?"
+
+**Trả lời chuẩn:**
+
+Flutter tìm kiếm Hero widgets trong cả source route và destination route theo `tag`. Nếu có duplicate tags:
+
+```dart
+// ❌ Duplicate tag trong cùng route → assertion error
+Scaffold(
+  body: Column(children: [
+    Hero(tag: 'image', child: Image.asset('photo.jpg')), // (A)
+    Hero(tag: 'image', child: Image.asset('photo2.jpg')), // (B) — SAME TAG!
+  ]),
+)
+// Flutter assert: "There are multiple heroes that share the same tag"
+// → throw FlutterError trong debug mode
+
+// ✅ Unique tags
+Hero(tag: 'image_1', child: Image.asset('photo.jpg'))
+Hero(tag: 'image_2', child: Image.asset('photo2.jpg'))
+
+// ✅ Dynamic tag từ data model (list items)
+ListView.builder(
+  itemBuilder: (ctx, i) => Hero(
+    tag: 'product_${items[i].id}', // unique per item
+    child: ProductCard(item: items[i]),
+  ),
+)
+```
+
+---
+
+#### Q2 [Junior] — "Sự khác biệt giữa `Hero` và `AnimatedContainer`?"
+
+**Trả lời chuẩn:**
+
+| | `Hero` | `AnimatedContainer` |
+|---|---|---|
+| **Scope** | Cross-route (giữa 2 screens) | Same-route (trong 1 screen) |
+| **What animates** | Position, size, shape của widget | Properties (color, size, border-radius) |
+| **Control** | Tự động khi navigate | Manual — thay đổi value + setState |
+| **Use case** | Shared element transition | Value animation trong screen |
+
+```dart
+// Hero — widget "bay" từ list screen sang detail screen
+// Screen A (list)
+Hero(
+  tag: 'product_image_${product.id}',
+  child: Image.network(product.imageUrl),
+)
+
+// Screen B (detail) — cùng tag → Hero animation
+Hero(
+  tag: 'product_image_${product.id}',
+  child: Image.network(product.imageUrl, width: double.infinity),
+)
+// Khi navigate: image "bay" từ small (list) sang large (detail)
+
+// AnimatedContainer — thay đổi trong cùng screen
+AnimatedContainer(
+  duration: const Duration(milliseconds: 300),
+  width: _isExpanded ? 200 : 100, // animate size change
+  color: _isSelected ? Colors.blue : Colors.grey,
+)
+```
+
+---
+
+#### Q3 [Middle] — "`PageRouteBuilder` vs `MaterialPageRoute` — khi nào cần custom?"
+
+**Trả lời chuẩn:**
+
+| | `MaterialPageRoute` | `PageRouteBuilder` |
+|---|---|---|
+| **Transition** | Platform default (slide iOS, fade Android) | Custom hoàn toàn |
+| **Duration** | Platform default (~300ms) | Tùy chỉnh |
+| **Code** | 1 dòng | Nhiều hơn |
+| **Use case** | Hầu hết screens | Custom branded transitions |
+
+```dart
+// MaterialPageRoute — platform-appropriate transition
+Navigator.push(context, MaterialPageRoute(
+  builder: (_) => const DetailPage(),
+));
+
+// PageRouteBuilder — custom fade + scale transition
+Navigator.push(context, PageRouteBuilder(
+  pageBuilder: (ctx, anim, secAnim) => const DetailPage(),
+  transitionDuration: const Duration(milliseconds: 400),
+  reverseTransitionDuration: const Duration(milliseconds: 300),
+  transitionsBuilder: (ctx, animation, secondaryAnimation, child) {
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.9, end: 1.0)
+            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+        child: child,
+      ),
+    );
+  },
+));
+```
+
+---
+
+#### Q4 [Senior] — "Hero animation cơ chế: Flutter dùng `Overlay` thế nào để 'fly' widget giữa routes?"
+
+**Trả lời chuẩn:**
+
+Hero animation là phức tạp nhất trong Flutter animation system. Cơ chế:
+
+**Phase 1 — Chụp "from" position:**
+```
+Navigator.push() triggered
+  ↓
+HeroController.didPush()
+  ↓
+Flutter scan source route (current) tìm tất cả Hero widgets → fromHeroes map
+Flutter scan destination route (new) tìm tất cả Hero widgets → toHeroes map
+  ↓
+Với mỗi matching tag: capture fromHero.renderBox (position + size)
+```
+
+**Phase 2 — Create flight widget:**
+```
+Tạo OverlayEntry mới → đặt VÀO Overlay (trên cả hai routes)
+Flight widget:
+  - Bắt đầu tại fromHero position + size
+  - Animate đến toHero position + size
+  - Source Hero bị ẩn (opacity=0) trong khi flight
+  - Destination Hero bị ẩn (opacity=0) trong khi flight
+
+Animation:
+  size: lerp(fromSize, toSize)
+  position: lerp(fromOffset, toOffset)  
+```
+
+**Phase 3 — Landing:**
+```
+Khi animation complete:
+  - OverlayEntry removed
+  - Destination Hero hiện lại (opacity=1)
+  - Flight widget removed
+```
+
+---
+
+#### Q5 [Middle] — "`Hero.flightShuttleBuilder` dùng để làm gì? Khi nào cần custom?"
+
+**Trả lời chuẩn:**
+
+Mặc định, Hero dùng **destination widget** làm flight shuttle (widget bay trên Overlay). `flightShuttleBuilder` cho phép customize widget trong flight:
+
+```dart
+Hero(
+  tag: 'avatar',
+  flightShuttleBuilder: (
+    flightContext,
+    animation,
+    flightDirection,        // HeroFlightDirection.push hoặc .pop
+    fromHeroContext,        // context của source Hero
+    toHeroContext,          // context của destination Hero
+  ) {
+    // Return widget sẽ hiện trong suốt flight
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (ctx, _) {
+        // Blend từ source → destination appearance
+        return Material(
+          type: MaterialType.transparency,
+          child: Image.network(
+            imageUrl,
+            // Resize animation
+            width: lerpDouble(
+              fromHeroContext.size?.width,
+              toHeroContext.size?.width,
+              animation.value,
+            ),
+          ),
+        );
+      },
+    );
+  },
+  child: CircleAvatar(backgroundImage: NetworkImage(imageUrl)),
+)
+```
+
+**Khi cần `flightShuttleBuilder`:**
+- Source và destination có shape khác nhau (circle → rectangle)
+- Muốn custom visual trong flight (blend effect)
+- Destination widget có loading state cần hide trong flight
+
+---
+
+#### Q6 [Middle] — "Tại sao Hero animation có thể fail với `ListView` recycling widgets?"
+
+**Trả lời chuẩn:**
+
+`ListView.builder` **recycles** Elements — khi item scroll off screen, Element bị deactivated. Nếu Hero widget nằm trong recycled element:
+
+```dart
+// ❌ Vấn đề: ListView item scrolled off → Hero Element deactivated
+ListView.builder(
+  itemBuilder: (ctx, i) => Hero(
+    tag: 'item_$i',
+    child: Image.network(items[i].url),
+  ),
+)
+
+// User scroll để item 0 off screen → tap detail của item 0
+// Hero animation: Flutter tìm source Hero với tag 'item_0'
+// Source Hero element bị deactivated → không tìm thấy → NO animation
+```
+
+**Solutions:**
+
+```dart
+// Fix 1: Scroll item vào visible trước khi navigate
+// Dùng ScrollController.animateTo() để ensure item visible
+
+// Fix 2: Dùng placeholder Hero tại fixed position
+// Source: Hero(tag: 'image') ở top của screen (không scroll)
+// Destination: Hero(tag: 'image') ở detail
+
+// Fix 3: Wrap ListView trong SingleChildScrollView với fixed-position Hero
+Stack(children: [
+  ListView.builder(...),
+  Positioned(
+    top: selectedItemOffset,
+    child: Hero(tag: 'image_$selectedId', child: ...),
+  ),
+])
+```
+
+---
+
+#### Q7 [Trace Code] — "Hai Hero cùng tag trong cùng route: lỗi gì xảy ra?"
+
+```dart
+// Scenario A: Hai Hero cùng tag trong cùng route
+Scaffold(
+  body: Column(
+    children: [
+      Hero(
+        tag: 'shared_image',       // (A) tag = 'shared_image'
+        child: const FlutterLogo(size: 50),
+      ),
+      Hero(
+        tag: 'shared_image',       // (B) tag = 'shared_image' — DUPLICATE!
+        child: const FlutterLogo(size: 100),
+      ),
+    ],
+  ),
+)
+
+// Scenario B: Hero trong route nguồn, navigate đến route không có Hero cùng tag
+// Route A: Hero(tag: 'unique')
+// Route B: không có Hero tag 'unique'
+Navigator.push(context, MaterialPageRoute(builder: (_) => const NoHeroPage()));
+```
+
+**Scenario A:**
+- Trong **debug mode**: Flutter assert `There are multiple heroes that share the same tag within a subtree` → throw `FlutterError` → app crash với red screen
+- Trong **release mode**: Behavior undefined — có thể chọn một trong hai Heroes, animation có thể glitch
+
+**Scenario B:**
+- **Không lỗi** — Hero animation chỉ xảy ra khi cả source và destination đều có Hero cùng tag
+- Nếu không có matching Hero trong destination → widget (A) trong source route vẫn render bình thường — chỉ không có animation
+- Transition dùng standard route animation (slide/fade) thay vì Hero animation
+
+**Conclusion:** Hero tag phải unique trong **từng route** (không nhất thiết phải global unique — có thể dùng cùng tag trong 2 routes khác nhau để trigger Hero animation).

@@ -409,16 +409,264 @@ LayoutBuilder(
 - `Row` + `VerticalDivider` cho master-detail
 - `Navigator.push` cho mobile detail
 
-### Câu hỏi phỏng vấn liên quan:
+### Câu Hỏi Phỏng Vấn
 
-1. **"Responsive vs Adaptive trong Flutter?"**
-   - Responsive: thay đổi layout theo screen size
-   - Adaptive: thay đổi widget theo platform (Material vs Cupertino)
+> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
-2. **"Khi nào dùng `MediaQuery` vs `LayoutBuilder`?"**
-   - `MediaQuery`: screen-level decisions (safe area, text scale, orientation)
-   - `LayoutBuilder`: component-level decisions (column count, show/hide sidebar)
+---
 
-3. **"`FractionallySizedBox` dùng khi nào?"**
-   - Khi cần size theo phần trăm của parent
-   - Button width = 90% screen width, banner height = 30% screen height
+#### Q1 [Junior] — "Responsive vs Adaptive trong Flutter — khác biệt là gì?"
+
+**Trả lời chuẩn:**
+
+| | Responsive | Adaptive |
+|---|---|---|
+| **Thay đổi dựa trên** | Screen size / available space | Platform (iOS vs Android vs Web) |
+| **Mục tiêu** | Layout phù hợp với kích thước | UI pattern phù hợp với platform |
+| **Ví dụ** | 1 column phone → 3 column tablet | Material Switch (Android) vs Cupertino Switch (iOS) |
+
+```dart
+// Responsive — layout thay đổi theo screen width
+LayoutBuilder(builder: (ctx, constraints) {
+  if (constraints.maxWidth > 600) {
+    return const TwoColumnLayout();
+  }
+  return const SingleColumnLayout();
+})
+
+// Adaptive — widget thay đổi theo platform
+Platform.isIOS
+    ? CupertinoSwitch(value: _val, onChanged: ...)
+    : Switch(value: _val, onChanged: ...)
+
+// Hoặc dùng adaptive constructors (Flutter 3+)
+Switch.adaptive(value: _val, onChanged: ...)
+```
+
+---
+
+#### Q2 [Junior] — "`FractionallySizedBox` dùng khi nào?"
+
+**Trả lời chuẩn:**
+
+`FractionallySizedBox` cho phép size widget theo **phần trăm của parent**, thay vì giá trị pixel cố định:
+
+```dart
+// Button chiếm 80% width của parent
+FractionallySizedBox(
+  widthFactor: 0.8,   // 80% of parent width
+  child: ElevatedButton(
+    onPressed: () {},
+    child: const Text('Login'),
+  ),
+)
+
+// Banner chiếm 30% height
+FractionallySizedBox(
+  heightFactor: 0.3,  // 30% of parent height
+  child: Container(color: Colors.blue),
+)
+
+// Trong Row/Column — cần Flexible wrapper
+Row(children: [
+  Flexible(
+    child: FractionallySizedBox(
+      widthFactor: 0.6, // 60% of Flexible's allocation
+      child: Container(color: Colors.red),
+    ),
+  ),
+])
+```
+
+**Ưu điểm so với hardcoded pixels:** Tự động scale trên mọi screen size — phone, tablet, desktop.
+
+---
+
+#### Q3 [Middle] — "Khi nào dùng `MediaQuery` vs `LayoutBuilder`? Trade-off?"
+
+**Trả lời chuẩn:**
+
+| | `MediaQuery.of(context)` | `LayoutBuilder` |
+|---|---|---|
+| **Trả về** | Screen-level info (size, padding, textScale) | Available space từ parent constraint |
+| **Phù hợp** | Screen-level decisions | Component-level decisions |
+| **Rebuild khi** | Screen size / orientation / insets thay đổi | Constraint từ parent thay đổi |
+| **Ví dụ** | Safe area insets, keyboard visibility | Column count trong grid, sidebar width |
+
+```dart
+// ✅ MediaQuery — screen-level
+Widget buildBottomBar() {
+  final bottomInset = MediaQuery.of(context).viewInsets.bottom; // keyboard height
+  return Padding(
+    padding: EdgeInsets.only(bottom: bottomInset),
+    child: const BottomBar(),
+  );
+}
+
+// ✅ LayoutBuilder — component-level
+Widget buildCard() {
+  return LayoutBuilder(
+    builder: (ctx, constraints) {
+      // Component này có thể nằm trong sidebar (300px) hoặc full screen (390px)
+      return constraints.maxWidth > 350
+          ? const WideCardLayout()
+          : const NarrowCardLayout();
+    },
+  );
+}
+// Không dùng MediaQuery vì card không biết nó đang ở đâu trong layout
+```
+
+---
+
+#### Q4 [Senior] — "`MediaQuery.of(context)` gây rebuild khi nào? Tại sao `MediaQuery.sizeOf()` (Flutter 3.10+) tốt hơn?"
+
+**Trả lời chuẩn:**
+
+`MediaQuery.of(context)` register dependency vào **toàn bộ `MediaQueryData` object**. Bất kỳ thay đổi nào trong `MediaQueryData` (size, orientation, textScaleFactor, viewInsets, padding, v.v.) đều trigger rebuild.
+
+**Vấn đề:** Khi keyboard xuất hiện, `viewInsets.bottom` thay đổi → `MediaQueryData` thay đổi → **mọi widget dùng `MediaQuery.of(context)`** đều rebuild — kể cả widget chỉ dùng `size` (không liên quan đến keyboard).
+
+**Flutter 3.10+ giải pháp — fine-grained methods:**
+
+```dart
+// ❌ Cũ — rebuild khi bất kỳ MediaQueryData field nào thay đổi
+final size = MediaQuery.of(context).size;
+
+// ✅ Mới — chỉ rebuild khi size thay đổi (orientation change)
+final size = MediaQuery.sizeOf(context);
+
+// ✅ Các phương thức fine-grained khác
+final padding = MediaQuery.paddingOf(context);
+final viewInsets = MediaQuery.viewInsetsOf(context);
+final textScaleFactor = MediaQuery.textScalerOf(context);
+```
+
+**Cơ chế:** `MediaQuery.sizeOf(context)` gọi `context.dependOnInheritedWidgetOfExactType<MediaQuery>()` với một "aspect" filter, chỉ register dependency vào `size` field — không phải toàn bộ `MediaQueryData`.
+
+---
+
+#### Q5 [Middle] — "Breakpoint approach vs `LayoutBuilder` approach: trade-off?"
+
+**Trả lời chuẩn:**
+
+**Breakpoint approach:**
+```dart
+// Global breakpoints
+const mobileBreakpoint = 600.0;
+const tabletBreakpoint = 1200.0;
+
+// Dùng MediaQuery (screen level)
+final width = MediaQuery.sizeOf(context).width;
+if (width > tabletBreakpoint) return const TabletLayout();
+if (width > mobileBreakpoint) return const TabletLayout();
+return const MobileLayout();
+```
+
+**LayoutBuilder approach:**
+```dart
+// Local available space
+LayoutBuilder(builder: (ctx, constraints) {
+  if (constraints.maxWidth > 600) return const WideLayout();
+  return const NarrowLayout();
+})
+```
+
+| Aspect | Breakpoint (MediaQuery) | LayoutBuilder |
+|---|---|---|
+| **Scope** | Screen-level global | Component-level local |
+| **Reuse** | Component phụ thuộc screen size → khó reuse | Component phụ thuộc available space → reusable |
+| **Testing** | Cần mock screen size | Chỉ cần mock constraints |
+| **Sideeffects** | Rebuild khi keyboard show (nếu dùng `MediaQuery.of`) | Chỉ rebuild khi parent layout thay đổi |
+
+**Best practice:** Dùng breakpoints cho **screen-level routing** (which screen layout to show). Dùng `LayoutBuilder` cho **component-level adaptation** (how component renders given available space).
+
+---
+
+#### Q6 [Middle] — "`AdaptiveScaffold` (Flutter Adaptive Library) giải quyết vấn đề gì?"
+
+**Trả lời chuẩn:**
+
+`AdaptiveScaffold` từ package `flutter_adaptive_scaffold` giải quyết vấn đề **boilerplate responsive navigation** — thường phải viết nhiều `if/else` để handle phone/tablet/desktop:
+
+```dart
+// Không có AdaptiveScaffold — phải tự handle mọi breakpoint
+Widget build(context) {
+  final width = MediaQuery.sizeOf(context).width;
+  if (width > 1200) {
+    return Row(children: [
+      SizedBox(width: 300, child: NavigationDrawer(...)),
+      Expanded(child: body),
+      SizedBox(width: 300, child: SecondaryPanel()),
+    ]);
+  }
+  if (width > 600) {
+    return Row(children: [
+      NavigationRail(...),
+      Expanded(child: body),
+    ]);
+  }
+  return Scaffold(bottomNavigationBar: ..., body: body);
+}
+
+// Với AdaptiveScaffold — declarative, tự handle breakpoints
+AdaptiveScaffold(
+  destinations: const [...],
+  body: (_) => const MainContent(),
+  secondaryBody: (_) => const DetailPanel(), // chỉ show trên tablet+
+)
+// Tự động: phone → BottomNav, tablet → NavigationRail, desktop → Drawer + rail
+```
+
+`LayoutBuilder` thuần không giải quyết được **navigation pattern** — nó chỉ cho biết available space, không có khái niệm về navigation components.
+
+---
+
+#### Q7 [Trace Code] — "`MediaQuery.textScaleFactor` thay đổi: widget nào bị ảnh hưởng?"
+
+```dart
+class App extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Column(
+          children: [
+            // (A) Text với explicit style
+            const Text(
+              'Hello World',
+              style: TextStyle(fontSize: 16),
+            ),
+            
+            // (B) Text với fontSize không set
+            const Text('Default size'),
+            
+            // (C) Icon
+            const Icon(Icons.star, size: 24),
+            
+            // (D) Container với height cố định
+            Container(height: 50, color: Colors.blue),
+            
+            // (E) Text với textScaler disabled
+            Text(
+              'No Scale',
+              style: const TextStyle(fontSize: 16),
+              textScaler: TextScaler.noScaling, // Flutter 3.12+
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+**Khi user tăng system font size (textScaleFactor: 1.0 → 1.5):**
+
+- **(A) `Text(style: TextStyle(fontSize: 16))`** → **bị ảnh hưởng** — Flutter nhân `fontSize × textScaleFactor` = 16 × 1.5 = 24px → Text lớn hơn
+- **(B) `Text('Default size')`** → **bị ảnh hưởng** — default fontSize từ Theme, cũng được scale
+- **(C) `Icon(size: 24)`** → **không bị ảnh hưởng** (mặc định) — Icon size không phụ thuộc textScaleFactor
+- **(D) `Container(height: 50)`** → **không bị ảnh hưởng** — hardcoded pixel
+- **(E) `Text(textScaler: TextScaler.noScaling)`** → **không bị ảnh hưởng** — đã opt out
+
+**Hậu quả thực tế:** Text dài hơn có thể overflow container cố định → layout break. Nên dùng `flexible` sizing cho containers chứa Text, hoặc test với textScaleFactor lớn trong DevTools.
