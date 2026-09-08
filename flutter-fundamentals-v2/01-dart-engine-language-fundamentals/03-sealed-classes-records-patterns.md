@@ -96,6 +96,116 @@ Record vs Class:
 
 ---
 
+### Bản Chất Kỹ Thuật (Dart Compiler Level)
+
+#### Sealed Class → Closed Type Set + Compile-Time Exhaustiveness Proof
+
+`sealed` keyword thêm một constraint vào compiler: **tất cả direct subtypes phải nằm trong cùng library**. Nhờ đó compiler biết *chính xác* danh sách đầy đủ các subtype → có thể **prove exhaustiveness tại compile time**, không phải runtime:
+
+```dart
+// File: ui_state.dart
+sealed class UiState<T> {}
+final class Initial<T> extends UiState<T> {}
+final class Loading<T> extends UiState<T> {}
+final class Success<T> extends UiState<T> { final T data; }
+final class Failure<T> extends UiState<T> { final String msg; }
+```
+
+```
+// Dart Compiler — exhaustiveness checking (compile-time, NOT runtime):
+switch (state) {
+  case Initial():  ...
+  case Loading():  ...
+  case Success():  ...
+  // Failure bị thiếu → Compiler tính: {Initial, Loading, Success, Failure}
+  //                                   - {Initial, Loading, Success}
+  //                                   = {Failure} chưa được cover
+  //                                   → Compile Error: "The type 'Failure' is not exhaustively matched"
+}
+```
+
+**Điều này KHÔNG xảy ra ở runtime** — toàn bộ là static analysis. AOT output không có bất kỳ runtime type check nào thêm vào.
+
+**So sánh Kotlin `sealed class`** — cùng cơ chế:
+```kotlin
+sealed class UiState
+// Kotlin: subclasses phải cùng file (cùng package từ Kotlin 1.5+)
+// when (state) { is Loading -> ... } // exhaustiveness checked at compile time
+```
+
+#### Records → Structural Value Type (Compiler-Generated Equality)
+
+Records là **value type** — compiler tự động generate `==` và `hashCode` dựa trên tất cả fields, giống như `data class` trong Kotlin hay `record` trong Java 16+:
+
+```dart
+// Bạn viết:
+var p1 = (x: 1, y: 2);
+var p2 = (x: 1, y: 2);
+print(p1 == p2); // true
+```
+
+```
+// Dart Compiler sinh ra cho Record type (x: int, y: int):
+bool operator ==(Object other) {
+  return other is (int, int) &&         // cùng shape (positional/named)
+         other.$1 == this.$1 &&          // so sánh field-by-field
+         other.$2 == this.$2;
+}
+int get hashCode => Object.hash($1, $2); // structural hash
+```
+
+**So sánh với class thông thường** (phải tự implement):
+```dart
+// class cần override thủ công:
+class Point {
+  final int x, y;
+  @override bool operator ==(Object o) => o is Point && o.x == x && o.y == y;
+  @override int get hashCode => Object.hash(x, y);
+}
+```
+
+**So sánh với Kotlin `data class`** (compiler cũng tự generate):
+```kotlin
+data class Point(val x: Int, val y: Int)
+// → compiler sinh: equals(), hashCode(), toString(), copy(), componentN()
+```
+
+Dart Record tương tự nhưng **không cần khai báo tên class** — anonymous, dùng xong bỏ.
+
+#### Pattern Matching → Compiled to If-Else Chain + Type Checks
+
+```dart
+// Bạn viết:
+Widget build(UiState<List<Product>> state) => switch (state) {
+  Initial()               => const Text('Chưa tải'),
+  Loading()               => const CircularProgressIndicator(),
+  Success(:final data)    => ProductList(products: data),
+  Failure(:final msg)     => ErrorWidget(message: msg),
+};
+```
+
+```
+// Dart Compiler desugars thành (conceptually):
+Widget build(UiState<List<Product>> state) {
+  if (state is Initial) {
+    return const Text('Chưa tải');
+  } else if (state is Loading) {
+    return const CircularProgressIndicator();
+  } else if (state is Success) {
+    final data = (state as Success).data;  // destructuring = field access
+    return ProductList(products: data);
+  } else if (state is Failure) {
+    final msg = (state as Failure).msg;
+    return ErrorWidget(message: msg);
+  }
+  // sealed → compiler BIẾT không có case nào khác → không cần else/default
+}
+```
+
+Keyword `:final data` trong `Success(:final data)` là **destructuring pattern** — compiler extract field `data` từ object, tương đương `(state as Success).data`.
+
+---
+
 ## Phần 3 — Code Mẫu Chuẩn Google
 
 ### 3.1 — Sealed Class cho UI State

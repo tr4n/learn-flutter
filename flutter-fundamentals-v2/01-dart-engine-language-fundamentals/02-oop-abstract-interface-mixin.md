@@ -87,6 +87,195 @@ sequenceDiagram
 
 ---
 
+### Bản Chất Kỹ Thuật (Dart Compiler Level)
+
+> Giống như trong Kotlin, bạn có thể bật "Show Kotlin Bytecode" để thấy extension function thực ra là Java static method — Dart có cơ chế tương tự nhưng ở tầng Dart Kernel IR.
+
+#### Extension Method → Static Function
+
+**Dart extension method bản chất là một static function** với receiver được truyền như tham số ẩn `$this` — y hệt Kotlin extension compiles thành Java static method:
+
+```dart
+// Bạn viết:
+extension StringX on String {
+  bool get isEmail => contains('@');
+  String toCurrency({String symbol = '₫'}) => '$this $symbol';
+}
+
+'user@test.com'.isEmail;
+'50000'.toCurrency(symbol: 'đ');
+```
+
+```
+// Dart Kernel IR — những gì compiler thực sự tạo ra:
+static bool StringX|get#isEmail(String $this) {
+  return $this.contains('@');
+}
+static String StringX|toCurrency(String $this, {String symbol = '₫'}) {
+  return '${$this} ${symbol}';
+}
+
+// Call sites bị rewrite thành:
+'user@test.com'.isEmail       →  StringX|get#isEmail('user@test.com')
+'50000'.toCurrency(symbol:'đ') →  StringX|toCurrency('50000', symbol: 'đ')
+```
+
+So sánh Kotlin:
+```kotlin
+fun String.isEmail() = contains('@')
+// → Java bytecode: public static boolean isEmail(String $receiver) { ... }
+```
+
+**Hệ quả trực tiếp của static dispatch (không phải virtual dispatch):**
+
+| Tình huống | Kết quả | Lý do |
+|---|---|---|
+| `dynamic text = 'hi'; text.isEmail` | `NoSuchMethodError` runtime | Compiler không biết bind static function nào vào `dynamic` |
+| Extension override instance method | Impossible | Static function không nằm trong virtual dispatch table |
+| Instance method `isEmail()` được thêm vào `String` | Instance method thắng | Instance method có độ ưu tiên cao hơn extension |
+
+---
+
+#### Interface Property → Abstract Getter (không phải field)
+
+Trong Java và Kotlin, interface không có instance field — chỉ có abstract getter. **Dart `abstract interface class` hoạt động y hệt**:
+
+```dart
+// Bạn viết:
+abstract interface class Shape {
+  String name;       // ❌ Compile error: interface không có instance field
+  String get name;   // ✅ Abstract getter — đây là contract thực sự
+  double get area;   // ✅ Abstract getter
+  void draw();       // ✅ Abstract method
+}
+```
+
+```
+// Dart Compiler — những gì interface thực sự yêu cầu ở implementer:
+abstract class Shape {
+  String get name;        // getter contract (không có setter vì interface)
+  double get area;        // getter contract
+  void draw();            // method contract
+}
+```
+
+Implementing class có 2 cách fulfill getter contract:
+
+```dart
+class Circle implements Shape {
+  // Cách 1: final field → compiler AUTO-TẠO getter ngầm
+  @override
+  final String name;            // → compiler sinh: String get name => _name;
+  //                               KHÔNG có setter (final)
+
+  // Cách 2: custom computed getter
+  @override
+  double get area => 3.14159 * radius * radius;
+
+  final double radius;
+  const Circle(this.radius, {this.name = 'Circle'});
+
+  @override
+  void draw() => print('Drawing $name');
+}
+```
+
+So sánh Kotlin: `interface Shape { val name: String }` → compiler sinh `String getName()` abstract trong JVM bytecode.
+
+**Khác biệt quan trọng giữa `abstract class` và `abstract interface class`:**
+
+```dart
+// abstract class: ĐƯỢC có constructor + field
+abstract class Animal {
+  final String name;               // field hợp lệ — lưu trong instance
+  Animal(this.name);               // constructor hợp lệ
+  String get sound;                // abstract getter
+}
+
+// abstract interface class: KHÔNG được có constructor, KHÔNG có field
+abstract interface class Serializable {
+  // final String version;        // ❌ interface field — compile error
+  Map<String, dynamic> toJson();  // ✅ method contract
+}
+```
+
+---
+
+#### Mixin → Synthetic Class Linearization
+
+Khi dùng `with`, Dart compiler **không "copy" code vào class** — thay vào đó nó tạo ra một **chuỗi class trung gian ẩn** (mixin application) để dựng lên chuỗi kế thừa tuyến tính:
+
+```dart
+// Bạn viết:
+class MyWidget extends StatefulWidget with RouteAware, WidgetsBindingObserver {}
+```
+
+```
+// Dart Kernel — compiler thực sự sinh ra (bạn có thể thấy tên này trong error messages):
+abstract class _MyWidget&StatefulWidget&RouteAware
+    = StatefulWidget with RouteAware;
+//  ↑ synthetic class #1: StatefulWidget + RouteAware
+
+abstract class _MyWidget&StatefulWidget&RouteAware&WidgetsBindingObserver
+    = _MyWidget&StatefulWidget&RouteAware with WidgetsBindingObserver;
+//  ↑ synthetic class #2: thêm WidgetsBindingObserver
+
+class MyWidget extends _MyWidget&StatefulWidget&RouteAware&WidgetsBindingObserver {}
+//  ↑ MyWidget chỉ extend class cuối cùng trong chuỗi
+```
+
+Khi bạn thấy error như: `type '_MyWidget&StatefulWidget&RouteAware' is not a subtype of 'RouteAware'` — đó chính là tên synthetic class này xuất hiện.
+
+**Chuỗi kế thừa thực sự (giải thích "last mixin wins"):**
+```
+Method lookup: MyWidget → WidgetsBindingObserver → RouteAware → StatefulWidget → Widget → Object
+                                ↑ mixin cuối được kiểm tra trước — đây là C3 linearization
+```
+
+---
+
+#### `implements` → Tất cả Member Trở Thành Abstract Getter/Setter
+
+Khi class `A` được ai đó `implements`, Dart compiler chiết xuất **implicit interface** từ `A`: mỗi field → getter/setter abstract, mỗi method → abstract signature. Đây là cơ sở của "mọi Dart class đều là interface":
+
+```dart
+// Class thông thường:
+class Logger {
+  String prefix;                                    // mutable field
+  Logger(this.prefix);
+  void log(String msg) => print('[$prefix] $msg'); // concrete method
+}
+```
+
+```
+// Implicit interface mà Dart compiler chiết xuất từ Logger:
+abstract class Logger {
+  String get prefix;         // mutable field → getter abstract
+  set prefix(String value);  // mutable field → setter abstract
+  void log(String msg);      // method → abstract signature
+}
+// Constructor KHÔNG có trong interface
+```
+
+```dart
+// Implementer phải fulfill ĐẦY ĐỦ — kể cả setter:
+class SilentLogger implements Logger {
+  @override
+  String prefix = '';            // thỏa mãn cả getter lẫn setter
+
+  @override
+  void log(String msg) {}        // no-op implementation
+}
+
+// Nếu dùng final field → chỉ có getter, KHÔNG có setter → lỗi khi implements class có mutable field:
+class ReadOnlyLogger implements Logger {
+  @override
+  final String prefix = 'READ'; // ❌ Thiếu setter! Compile error.
+}
+```
+
+---
+
 ## Phần 3 — Code Mẫu Chuẩn Google
 
 ### 3.1 — Abstract Class vs Implicit Interface

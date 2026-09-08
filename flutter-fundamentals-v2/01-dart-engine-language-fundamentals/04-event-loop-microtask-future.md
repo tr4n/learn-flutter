@@ -76,16 +76,18 @@ flowchart TD
 2. Chỉ sau khi Microtask Queue rỗng, Event Loop mới lấy 1 event từ Event Queue
 3. Call Stack phải rỗng trước khi Event Loop chạy bất cứ thứ gì
 
-### `async/await` là Syntactic Sugar
+### `async/await` là Syntactic Sugar — State Machine
+
+`await` không block thread — nó *suspend* function hiện tại và trả control về Event Loop, để các task khác có thể chạy. Về kỹ thuật, Dart compiler biến đổi mỗi `async` function thành một **state machine**:
 
 ```dart
-// Code này:
+// Bạn viết:
 Future<String> fetchData() async {
-  final response = await http.get(Uri.parse('/api'));
+  final response = await http.get(Uri.parse('/api'));  // suspension point
   return response.body;
 }
 
-// Tương đương với (conceptually):
+// Tương đương .then() chain (conceptual desugar bước 1):
 Future<String> fetchData() {
   return http.get(Uri.parse('/api')).then((response) {
     return response.body;
@@ -93,7 +95,63 @@ Future<String> fetchData() {
 }
 ```
 
-`await` không block thread — nó *suspend* function hiện tại và trả control về Event Loop, để các task khác có thể chạy.
+Với hàm có **nhiều `await`**, Dart compiler tạo ra state machine đầy đủ:
+
+```dart
+// Bạn viết:
+Future<String> processUser() async {
+  final user = await fetchUser();       // suspension point 0→1
+  final token = await fetchToken(user); // suspension point 1→2
+  return 'Done: ${token}';
+}
+```
+
+```
+// Dart Kernel IR — State Machine compiler tạo ra (conceptually):
+Future<String> processUser() {
+  // Mỗi await tạo ra một "state" trong state machine
+  int _state = 0;
+  dynamic _savedUser;
+  final _completer = Completer<String>();
+
+  void _resume(dynamic _value, Object? _error) {
+    if (_error != null) { _completer.completeError(_error); return; }
+    switch (_state) {
+      case 0:                          // Trạng thái ban đầu
+        _state = 1;
+        fetchUser()
+          .then((v) => _resume(v, null),
+                onError: (e) => _resume(null, e));
+        return;                        // ← RETURN về Event Loop, không block!
+
+      case 1:                          // Sau await fetchUser()
+        _savedUser = _value;           // lưu kết quả trước
+        _state = 2;
+        fetchToken(_savedUser)
+          .then((v) => _resume(v, null),
+                onError: (e) => _resume(null, e));
+        return;
+
+      case 2:                          // Sau await fetchToken()
+        _completer.complete('Done: ${_value}');
+    }
+  }
+
+  _resume(null, null);                 // kickstart state machine
+  return _completer.future;
+}
+```
+
+**So sánh với các ngôn ngữ khác — cùng state machine pattern:**
+
+| Ngôn ngữ | Cơ chế |
+|---|---|
+| **Dart** `async/await` | State machine + `Completer` + `.then()` callbacks |
+| **Kotlin** coroutines | State machine + `Continuation` + `label` field |
+| **C#** `async/await` | `IAsyncStateMachine` struct + `MoveNext()` method |
+| **JavaScript** `async/await` | Desugars to `Promise.then()` chain |
+
+Điểm chung: **mỗi `await` là một suspension point** — compiler đánh số state, lưu local variables, register callback, rồi `return` ngay về caller. Khi Future hoàn thành, callback được đưa vào Microtask Queue và tiếp tục từ state kế tiếp.
 
 ---
 

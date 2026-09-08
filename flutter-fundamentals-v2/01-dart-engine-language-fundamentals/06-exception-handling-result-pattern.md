@@ -79,6 +79,107 @@ Dùng Result type:
 
 ---
 
+### Bản Chất Kỹ Thuật (Dart Compiler Level)
+
+#### Tại Sao Dart Không Có Checked Exceptions (Design Decision)
+
+Java buộc bạn phải khai báo exception trong signature (`throws IOException`) và caller phải handle — gọi là **checked exceptions**. Dart (và Kotlin) chọn **unchecked exceptions**:
+
+```java
+// Java — checked exception: compiler enforce
+public User fetchUser(String id) throws IOException, SQLException {
+  // Caller BẮT BUỘC phải catch hoặc khai báo throws tiếp
+}
+```
+
+```dart
+// Dart — unchecked: không có throws declaration
+Future<User> fetchUser(String id) async {
+  // Có thể throw SocketException, FormatException... caller không biết từ signature
+}
+```
+
+**Lý do Dart (và Kotlin, C#) từ bỏ checked exceptions:**
+1. **API fragility**: thêm exception mới vào deep layer → buộc thay đổi signature tất cả layers phía trên
+2. **Verbose boilerplate**: `catch (e) { throw e; }` để "re-wrap" exception phổ biến đến mức vô nghĩa
+3. **Bypass dễ dàng**: `catch (Exception e) {}` — developer hay viết catch-all để cho xong, mất hẳn ý nghĩa
+4. **Kotlin/Dart solution**: dùng **typed exception hierarchy** + **Result type** để explicit về lỗi mà không cần checked mechanism
+
+---
+
+#### Stack Unwinding — Cơ Chế Lan Truyền Exception
+
+Khi `throw` xảy ra, Dart VM thực hiện **stack unwinding**: tua ngược call stack, tìm `catch` handler phù hợp:
+
+```
+Call Stack khi exception xảy ra trong fetchUser():
+
+Frame 4: jsonDecode()           ← throw FormatException tại đây
+Frame 3: UserRepository.findById()
+Frame 2: UserViewModel.loadUser()  ← catch (FormatException) → MATCH! dừng unwind
+Frame 1: Widget.onTap()
+Frame 0: Flutter Framework
+
+Stack Unwinding:
+  jsonDecode() → pop frame 4
+  findById()   → không có catch FormatException → pop frame 3
+  loadUser()   → CÓ catch FormatException → HANDLE ở đây
+```
+
+```dart
+// Dart VM runtime behavior:
+try {
+  final data = jsonDecode(badJson);        // throw FormatException
+} on SocketException catch (e) {           // ← type check: FormatException is SocketException? NO
+  handle(e);
+} on FormatException catch (e, stackTrace) { // ← type check: FormatException is FormatException? YES
+  log(e, stackTrace);                      // ← MATCH — stop unwinding, execute this block
+} finally {
+  cleanup();  // ← LUÔN chạy bất kể exception hay không, TRƯỚC KHI throw tiếp tục
+}
+```
+
+**`finally` block chạy trong mọi trường hợp:**
+- Không có exception → chạy sau `try` block
+- Exception được catch → chạy sau `catch` block
+- Exception không được catch → chạy rồi tiếp tục unwind lên frame trên
+
+---
+
+#### `rethrow` vs `throw e` — Stacktrace Preservation
+
+```dart
+// ❌ throw e — tạo stacktrace MỚI từ điểm này
+} catch (e) {
+  logError(e);
+  throw e;  // Stacktrace trỏ về dòng này, mất context gốc
+}
+
+// ✅ rethrow — giữ NGUYÊN stacktrace gốc
+} catch (e) {
+  logError(e);
+  rethrow;  // Stacktrace vẫn trỏ về nơi exception xảy ra ban đầu
+}
+```
+
+```
+// Dart VM — sự khác biệt trong error report:
+
+// throw e:
+FormatException: ...
+  at UserRepository.findById (repo.dart:42)  ← trỏ vào catch block, mất gốc
+
+// rethrow:
+FormatException: ...
+  at jsonDecode (convert.dart:301)           ← trỏ đúng nơi xảy ra
+  at UserRepository.findById (repo.dart:38)
+  at UserViewModel.loadUser (vm.dart:25)
+```
+
+**Rule**: Trong `catch` block, dùng `rethrow` nếu chỉ muốn log rồi re-throw. Chỉ dùng `throw e` hoặc `throw NewException(e)` khi muốn **wrap** exception thành type mới.
+
+---
+
 ## Phần 3 — Code Mẫu Chuẩn Google
 
 ### 3.1 — Exception Hierarchy tốt

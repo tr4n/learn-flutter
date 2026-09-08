@@ -68,6 +68,113 @@ Object?          (gốc của mọi type, có thể là null)
 
 ---
 
+### Bản Chất Kỹ Thuật (Dart Compiler Level)
+
+> Giống như Kotlin Smart Cast không tốn runtime cost, các cơ chế null safety của Dart phần lớn là compile-time — không sinh thêm bytecode.
+
+#### `late` → Nullable Backing Field + Null Guard
+
+`late` keyword không có magic runtime — compiler đơn giản chuyển field thành nullable và inject null check mỗi lần đọc:
+
+```dart
+// Bạn viết:
+class Service {
+  late String apiKey;
+  late final DatabaseConnection db;
+}
+```
+
+```
+// Dart Compiler sinh ra (conceptually):
+class Service {
+  // late String apiKey  →
+  String? _apiKey$;
+  String get apiKey {
+    if (_apiKey$ == null) throw LateInitializationError('apiKey');
+    return _apiKey$!;  // ! an toàn vì đã check
+  }
+  set apiKey(String value) => _apiKey$ = value;
+
+  // late final DatabaseConnection db  →
+  DatabaseConnection? _db$;
+  DatabaseConnection get db {
+    if (_db$ == null) throw LateInitializationError('db');
+    return _db$!;
+  }
+  set db(DatabaseConnection value) {
+    if (_db$ != null) throw LateInitializationError('db');  // final: chỉ gán 1 lần
+    _db$ = value;
+  }
+}
+```
+
+Đây là lý do `late` biến lỗi từ **compile-time** thành **runtime**: compiler chấp nhận code nhưng throw `LateInitializationError` nếu đọc trước khi gán.
+
+**`late final` = lazy singleton pattern**: chỉ khởi tạo khi lần đầu truy cập, throw nếu cố gán lần 2.
+
+---
+
+#### Null-Aware Operators → Compile-Time Desugaring
+
+Tất cả null-aware operators là syntactic sugar — compiler rewrite thành biểu thức điều kiện đơn giản, **không có overhead runtime**:
+
+```
+// Dart desugars tại compile time:
+x?.foo           →  x == null ? null : x.foo
+x ?? y           →  x != null ? x : y
+x ??= y          →  x != null ? x : (x = y)
+x!               →  x == null ? throw NullCheckError() : x
+
+// Chain:
+a?.b?.c          →  a == null ? null : (a.b == null ? null : a.b.c)
+a ?? b ?? c      →  a != null ? a : (b != null ? b : c)
+```
+
+Không có runtime check overhead ngoài các điều kiện đơn giản. Bạn có thể tự tay viết phần desugar và kết quả sẽ **byte-for-byte giống nhau** trong AOT output.
+
+---
+
+#### Type Promotion → Pure Compile-Time Flow Analysis (Zero Runtime Cost)
+
+Dart type promotion **không sinh thêm một byte nào trong AOT output** — đây là 100% static analysis của Dart Analyzer:
+
+```dart
+// Bạn viết:
+void processName(String? name) {
+  if (name != null) {
+    print(name.length); // name được "promote" thành String ở đây
+  }
+}
+
+// AOT output tương đương — KHÔNG có runtime cast, KHÔNG có instanceof check:
+void processName(String? name) {
+  if (name != null) {
+    print(name.length); // Compiler đã biết name != null → gọi trực tiếp
+  }
+}
+```
+
+**So sánh với Java** (cơ chế tốn kém hơn):
+```java
+// Java: instanceof + explicit cast — 2 runtime operations
+if (obj instanceof String) {
+  String s = (String) obj; // runtime cast check
+  s.length();
+}
+```
+
+**So sánh với Kotlin Smart Cast** (cùng triết lý):
+```kotlin
+// Kotlin Smart Cast — cũng là compile-time analysis, zero runtime cost
+if (name != null) {
+  name.length // smart cast: compiler biết name là String (not null)
+}
+```
+
+Dart Analyzer thực hiện **Data Flow Analysis** toàn hàm: theo dõi tất cả path điều kiện, assignment, return để chứng minh tại điểm nào biến chắc chắn không null → không cần developer cast thủ công.
+
+---
+
 ## Phần 3 — Code Mẫu Chuẩn Google
 
 ### 3.1 — Nullable vs Non-nullable cơ bản

@@ -86,6 +86,119 @@ Broadcast: có thể drop events nếu không có buffer
 
 ---
 
+### Bản Chất Kỹ Thuật (Dart Compiler Level)
+
+#### `async*` / `yield` → Generator State Machine
+
+Hàm `async*` được Dart compiler biến đổi thành một **generator state machine** — tương tự `async` function nhưng thay vì complete một Future, nó add từng giá trị vào stream rồi **suspend** để chờ consumer sẵn sàng:
+
+```dart
+// Bạn viết:
+Stream<int> countdown(int from) async* {
+  for (var i = from; i >= 0; i--) {
+    yield i;                                          // suspension point
+    await Future.delayed(const Duration(seconds: 1));
+  }
+}
+```
+
+```
+// Dart Compiler sinh ra (conceptually):
+Stream<int> countdown(int from) {
+  final _controller = StreamController<int>();
+  int _state = 0;
+  int i = from; // local var được "lifted" ra ngoài closure
+
+  void _resume() {
+    while (true) {
+      switch (_state) {
+        case 0: // for loop check
+          if (i < 0) { _controller.close(); return; }
+          _state = 1;
+          _controller.add(i);   // yield i → add to stream
+          // Nếu có listener đang pause → suspend tại đây (back-pressure)
+          // Nếu không → tiếp tục ngay
+          Future.delayed(Duration(seconds: 1)).then((_) {
+            i--;
+            _state = 0;
+            _resume();           // resume sau delay
+          });
+          return;                // ← RETURN — không block!
+      }
+    }
+  }
+
+  _controller.onListen = _resume; // kickstart khi có listener
+  return _controller.stream;
+}
+```
+
+**Back-pressure tự động**: khi listener gọi `subscription.pause()`, controller không gọi `_resume()` tiếp theo → generator dừng phát.
+
+---
+
+#### `StreamController` → Linked List of Subscriptions
+
+`StreamController` nội bộ dùng **linked list** để quản lý subscriptions — đây là lý do tại sao:
+- **Single-subscription**: chỉ cho phép 1 node trong list, attempt listen lần 2 → `StateError`
+- **Broadcast**: cho phép nhiều node, mỗi `add()` iterate qua toàn bộ list
+
+```
+// Cấu trúc nội tại của StreamController:
+
+StreamController<T> {
+  _StreamSubscription? _subscription;  // single-sub: 1 pointer
+  // hoặc:
+  _BroadcastLinkedList? _firstSubscription;  // broadcast: linked list
+    _BroadcastLinkedList? _lastSubscription;
+
+  add(T event) {
+    // Single-sub:  gọi _subscription._onData(event)
+    // Broadcast:   iterate qua toàn bộ linked list, gọi onData cho từng node
+  }
+
+  pause() {
+    // Single-sub:  _subscription._pause()  → producer biết cần dừng
+    // Broadcast:   pause chỉ ảnh hưởng subscription đó, không affect others
+  }
+}
+```
+
+**Hệ quả của thiết kế này:**
+- `broadcast()` stream: mỗi `add()` tốn O(n) với n = số listeners — cẩn thận khi có nhiều subscribers
+- `pause()` trên single-subscription: gửi tín hiệu ngược lại producer (back-pressure) — producer biết để dừng phát, tránh buffer tràn
+- `await for` loop: ẩn sau `listen()` + `cancel()` — khi `break` khỏi `await for`, Dart tự động gọi `subscription.cancel()`
+
+---
+
+#### `await for` → `listen()` + Auto-Cancel
+
+```dart
+// Bạn viết:
+await for (final item in myStream) {
+  process(item);
+  if (shouldStop) break;
+}
+```
+
+```
+// Dart Compiler desugars thành:
+final _sub = myStream.listen(null);
+try {
+  while (await _sub.moveNext()) {    // chờ event tiếp theo
+    final item = _sub.current;
+    process(item);
+    if (shouldStop) break;           // break → exit loop
+  }
+} finally {
+  await _sub.cancel();               // ← auto-cancel khi exit (cả break lẫn exception)
+}
+```
+
+`await for` **đảm bảo cancel** kể cả khi exception xảy ra — đây là lý do `await for` an toàn hơn `listen()` thủ công khi không cần giữ reference.
+
+---
+
 ## Phần 3 — Code Mẫu Chuẩn Google
 
 ### 3.1 — StreamController cơ bản
