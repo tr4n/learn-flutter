@@ -1,611 +1,444 @@
-# Bài 5.4 — Provider Pattern Foundation
+# Bài 5.4 — Provider Pattern Foundation: Kiến Trúc & Cơ Chế Hoạt Động
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Ràng Buộc Kiến Trúc (Architecture & Design Philosophy)
 
-### Tại sao bài này quan trọng?
+### 1.1 — Bản chất kiến trúc của Package `provider`
 
-Sau khi học InheritedWidget và InheritedNotifier, bạn sẽ nhận ra: mọi state management package Flutter đều build trên cơ chế đó. `provider` là package phổ biến nhất — và là wrapper mỏng trên `InheritedWidget`.
+Trong hệ sinh thái Flutter, `provider` là một trong những thư viện phổ biến nhất cho việc quản lý trạng thái (State Management) và tiêm phụ thuộc (Dependency Injection). Tuy nhiên, về mặt bản chất kiến trúc, **`provider` không phát minh ra một runtime engine mới**. 
 
-```dart
-// Provider nguồn gốc là InheritedWidget
-// Nhưng provider handle:
-// - Tự động dispose ChangeNotifier
-// - MultiProvider để gộp nhiều provider
-// - Consumer/Selector để giới hạn rebuild scope
-// - context.read() vs context.watch() — sugar syntax
+Toàn bộ package `provider` thực chất là một lớp vỏ bọc cú pháp (Syntactic Sugar) kết hợp với bộ quản lý vòng đời tự động (Lifecycle Management), được xây dựng 100% trên nền tảng của 3 nguyên thủy cốt lõi trong Flutter SDK:
+
+$$\text{Provider Package} \equiv \text{InheritedWidget} + \text{InheritedNotifier} + \text{InheritedModel}$$
+
 ```
-
-Hiểu Provider giúp bạn:
-- Dùng package phổ biến nhất Flutter ecosystem đúng cách
-- Hiểu tại sao `context.watch()` rebuild widget nhưng `context.read()` thì không
-- Tối ưu rebuild với `Selector`
-
-### Bạn sẽ hiểu được sau bài này:
-- `ChangeNotifierProvider` — cung cấp model xuống tree
-- `Consumer<T>` — subscribe và rebuild widget
-- `Selector<T, S>` — subscribe chỉ khi phần cụ thể của model thay đổi
-- Migrate từ InheritedNotifier (bài 5.3) sang Provider
+┌────────────────────────────────────────────────────────────────────────┐
+│ FLUTTER FRAMEWORK PRIMITIVES (Tầng SDK)                                │
+│   • InheritedWidget  ──► Phân phối dữ liệu O(1) qua _inheritedElements │
+│   • InheritedNotifier──► Tự động kết nối Listenable với Element Tree   │
+│   • InheritedModel   ──► Lọc thông báo Rebuild theo khía cạnh (Aspect) │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Được trừu tượng hóa và đóng gói bởi
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ PROVIDER LAYER (Tầng Thư viện)                                         │
+│   1. MultiProvider: Giải quyết bẫy lồng nhau sâu (Pyramid of Doom)     │
+│   2. Lifecycle:     Tự động khởi tạo lười (Lazy) và tự động dispose()  │
+│   3. Syntactic Sugar:context.watch(), context.read(), context.select()  │
+│   4. Rebuild Filter:Consumer<T> và Selector<T, R>                      │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+### 1.2 — Ma trận phân định ranh giới kiến trúc State Management
 
-### Provider internals
+| Tiêu chí | Pure Flutter (`InheritedNotifier`) | `Provider` Package | Reactive Architectures (`Bloc`, `Riverpod`) |
+| :--- | :--- | :--- | :--- |
+| **Bản chất** | API nguyên bản của Flutter SDK. | Wrapper mỏng trên `InheritedWidget`. | Mô hình luồng dữ liệu đơn hướng (UDF / Streams). |
+| **Ưu điểm** | Zero dependency, không phụ thuộc thư viện thứ 3, kích thước bundle tối thiểu. | Cú pháp ngắn gọn, tự động dispose, hỗ trợ MultiProvider tiện lợi. | Tách biệt hoàn toàn UI và Business Logic, dễ unit test, quản lý side-effect phức tạp. |
+| **Nhược điểm** | Viết nhiều boilerplate (`StatefulWidget` + `InheritedNotifier`). | Vẫn gắn chặt với `BuildContext` (phụ thuộc cây giao diện). | Đường cong học tập cao hơn, cần nhiều boilerplate event/state. |
+| **Quy mô phù hợp** | Micro-apps, component thư viện dùng chung độc lập. | Ứng dụng quy mô nhỏ đến trung bình, kiến trúc module hóa. | Ứng dụng quy mô lớn của doanh nghiệp (Enterprise Apps). |
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động & Mã Nguồn Đối Chiếu (Under the Hood / Deep-Dive)
+
+### 2.1 — Ánh xạ trực tiếp từ API của Provider sang Flutter Framework Internals
+
+Các extension methods phổ biến trên `BuildContext` mà Provider cung cấp thực chất là các ánh xạ trực tiếp (1-to-1 Mapping) vào các API gốc của `Element` trong Flutter Framework:
+
+```
+┌───────────────────────────┐                ┌───────────────────────────────────────┐
+│ CÚ PHÁP CỦA PROVIDER      │                │ NGUYÊN THỦY CỦA FLUTTER FRAMEWORK     │
+├───────────────────────────┤                ├───────────────────────────────────────┤
+│ context.watch<T>()        │ ─────────────► │ context.dependOnInheritedWidgetOf...  │
+│ (Lắng nghe & Rebuild)     │                │ Ghi nhận Element vào _dependents      │
+├───────────────────────────┤                ├───────────────────────────────────────┤
+│ context.read<T>()         │ ─────────────► │ context.getInheritedWidgetOfExact...  │
+│ (Đọc 1 lần, không Rebuild)│                │ Tra cứu bảng băm O(1), không đăng ký  │
+├───────────────────────────┤                ├───────────────────────────────────────┤
+│ context.select<T, R>()    │ ─────────────► │ InheritedModel.inheritFrom(..., aspect│
+│ (Chỉ Rebuild khi R đổi)   │                │ Đăng ký Aspect Filtering có chọn lọc  │
+└───────────────────────────┘                └───────────────────────────────────────┘
+```
+
+#### 1. `context.watch<T>()`:
+Kích hoạt `dependOnInheritedWidgetOfExactType<_InheritedProviderScope<T>>()`. Đăng ký mối quan hệ hai chiều giữa Consumer Element và Provider Element. Bất cứ khi nào model phát thông báo `notifyListeners()`, widget gọi `watch` sẽ bị đánh dấu bẩn.
+
+#### 2. `context.read<T>()`:
+Kích hoạt `getInheritedWidgetOfExactType<_InheritedProviderScope<T>>()`. Thao tác này thuần túy đọc con trỏ model từ bảng băm $O(1)$ mà **hoàn toàn không đăng ký bất kỳ dependency nào**. Đây là phương thức an toàn duy nhất để truy cập model bên trong các hàm callback sự kiện (`onPressed`, `onTap`).
+
+#### 3. `context.select<T, R>(R Function(T) selector)`:
+Thực thi hàm `selector` để trích xuất một trường giá trị con kiểu `R`. Provider sử dụng cơ chế `InheritedModel` để chỉ kích hoạt rebuild khi giá trị của `selector(model)` tại khung hình mới khác biệt so với khung hình trước đó (dựa trên toán tử so sánh `==`).
+
+---
+
+### 2.2 — Mổ xẻ cơ chế hoạt động của `Selector<T, S>`
+
+Widget `Selector` được thiết kế để giải quyết bài toán tối ưu hóa vi mô: Ngăn chặn một widget con bị rebuild khi các trường dữ liệu khác của Model thay đổi:
 
 ```mermaid
-graph TB
-    CNP["ChangeNotifierProvider<Cart>\n(wraps InheritedNotifier)"]
-    Cart["ShoppingCart extends ChangeNotifier"]
-
-    CNP --> |"notifier: cart"| IN["InheritedNotifier<Cart>"]
-    IN -->|"dependOnInheritedWidgetOfExactType"| W1["CartBadge (watch)"]
-    IN -->|"getInheritedWidgetOfExactType"| W2["AddButton (read)"]
-    Cart -->|"notifyListeners()"| IN
-    IN -->|"updateShouldNotify → true"| W1
-    W2 -->|"Không rebuild"| W2
-
-    style W1 fill:#90EE90
-    style W2 fill:#f5f5f5
+flowchart TD
+    A["Model.notifyListeners() kích hoạt"] --> B["Selector nhận thông báo"]
+    B --> C["Thực thi selector(context, model) ──► Tính ra selectedValue mới"]
+    C --> D{shouldRebuild(oldValue, newValue)?}
+    D -->|"false (Giá trị không đổi)"| E["BỎ QUA REBUILD\nGiữ nguyên subtree cũ"]
+    D -->|"true (Giá trị thay đổi)"| F["KÍCH HOẠT BUILDER\nChỉ render lại khu vực cần thiết"]
 ```
 
-### context.watch() vs context.read() vs context.select()
-
+#### Thuật toán so sánh trong `Selector0`:
+```dart
+// Logic so sánh cốt lõi trong Selector
+@override
+bool shouldRebuild(T oldValue, T newValue) {
+  // Mặc định sử dụng DeepCollectionEquality() hoặc operator==
+  return !const DeepCollectionEquality().equals(oldValue, newValue);
+}
 ```
-context.watch<T>()      = context.dependOnInheritedWidgetOfExactType<T>()
-                        → Subscribe + rebuild khi T notify
-
-context.read<T>()       = context.getInheritedWidgetOfExactType<T>()
-                        → Read-only, không rebuild
-                        → Dùng trong callbacks/onPressed
-
-context.select<T, R>()  = Subscribe chỉ khi result của selector fn thay đổi
-                        → Fine-grained rebuild control
-```
+Nhờ cơ chế chặn sớm (Short-circuit Evaluation) này, dù một Model giỏ hàng có 100 sản phẩm bị thay đổi liên tục, một widget `Selector` chỉ quan sát trường `totalPrice` sẽ hoàn toàn không bị rebuild nếu tổng tiền không đổi.
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 2.3 — Cơ chế Lazy Loading và Tự động giải phóng (Lifecycle Automation)
 
-### 3.1 — Setup Provider
-
-```yaml
-# pubspec.yaml
-dependencies:
-  provider: ^6.0.0
-```
+Trong một `InheritedWidget` thông thường, đối tượng dữ liệu được khởi tạo ngay khi widget cha khởi tạo. Ngược lại, `ChangeNotifierProvider` mặc định áp dụng cơ chế **Khởi tạo lười (Lazy Evaluation)**:
 
 ```dart
-// main.dart — Setup providers ở root
+ChangeNotifierProvider<OrderAnalyticsService>(
+  create: (context) => OrderAnalyticsService(), // lazy: true (Mặc định)
+  child: const MainDashboard(),
+)
+```
+
+1. **Khởi tạo lười (`lazy: true`):** Callback `create()` sẽ **không được thực thi** tại thời điểm provider được gắn vào cây. Nó chỉ được thực thi khi có widget con đầu tiên trong subtree thực hiện gọi `context.read<OrderAnalyticsService>()` hoặc `context.watch<OrderAnalyticsService>()`. Điều này giúp tối ưu hóa thời gian khởi động ứng dụng (Cold Start Time) và tiết kiệm bộ nhớ RAM.
+2. **Tự động giải phóng tài nguyên:** Khi provider bị tháo gỡ vĩnh viễn khỏi Element Tree (`unmount()`), `InheritedProvider` tự động triệu hồi phương thức `dispose()` trên đối tượng `ChangeNotifier` mà nó quản lý, loại bỏ hoàn toàn nguy cơ rò rỉ bộ nhớ do quên hủy listener.
+
+---
+
+## Phần 3 — Hướng Dẫn Thực Hành Chuẩn (Production-Ready Implementations)
+
+### 3.1 — Kiến trúc MultiProvider kết hợp Model phân tầng
+
+Mô hình thiết kế chuẩn mực của một ứng dụng thương mại điện tử, kết hợp giữa `MultiProvider`, `ChangeNotifierProvider`, `Consumer` và `Selector`:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+/// 1. Domain Models
+class UserProfile extends ChangeNotifier {
+  String _name = 'Nguyễn Văn A';
+  String get name => _name;
+
+  void updateName(String newName) {
+    _name = newName;
+    notifyListeners();
+  }
+}
+
+class CartModel extends ChangeNotifier {
+  final Map<String, int> _items = {};
+
+  Map<String, int> get items => Map.unmodifiable(_items);
+
+  int get totalUniqueItems => _items.length;
+
+  int get totalItemCount => _items.values.fold(0, (sum, count) => sum + count);
+
+  void addItem(String productId) {
+    _items[productId] = (_items[productId] ?? 0) + 1;
+    notifyListeners();
+  }
+}
+
+/// 2. Cấu hình MultiProvider tại gốc ứng dụng
 void main() {
   runApp(
-    // MultiProvider: nhiều provider cùng lúc
     MultiProvider(
       providers: [
-        // ChangeNotifierProvider: create + manage lifecycle của ChangeNotifier
-        ChangeNotifierProvider<ShoppingCart>(
-          create: (_) => ShoppingCart(),
-          // lazy: true (default) — tạo khi lần đầu được dùng
-          // lazy: false — tạo ngay khi widget tree build
-        ),
-        ChangeNotifierProvider<UserModel>(
-          create: (_) => UserModel(),
-        ),
-        // Provider (không phải ChangeNotifierProvider): cho immutable data
-        Provider<AppConfig>(
-          create: (_) => AppConfig.fromEnv(),
-        ),
+        ChangeNotifierProvider(create: (_) => UserProfile()),
+        ChangeNotifierProvider(create: (_) => CartModel()),
       ],
-      child: const MyApp(),
+      child: const ProviderAppRoot(),
     ),
   );
 }
+
+class ProviderAppRoot extends StatelessWidget {
+  const ProviderAppRoot({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      home: HomeScreen(),
+    );
+  }
+}
 ```
 
-### 3.2 — Consumer và context.watch()
+---
+
+### 3.2 — Tối ưu hóa Rebuild với `Consumer` và `Selector`
 
 ```dart
-// Consumer: widget wrapper dùng builder pattern
-class CartSummaryConsumer extends StatelessWidget {
-  const CartSummaryConsumer({super.key});
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ShoppingCart>(
-      builder: (context, cart, child) {
-        // builder được gọi mỗi khi cart.notifyListeners()
-        return Column(
+    debugPrint('1. Build HomeScreen (Static Scaffolding)');
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cửa Hàng Trực Tuyến'),
+        actions: const [
+          CartBadgeAction(), // Widget cô lập lắng nghe giỏ hàng
+        ],
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('${cart.itemCount} items'),
-            Text('${cart.total.toStringAsFixed(0)}đ'),
-            // child: widget không thay đổi → pass vào để optimize
-            child!, // child không rebuild!
+            // Consumer chỉ đọc thông tin User, không quan tâm giỏ hàng
+            Consumer<UserProfile>(
+              builder: (context, user, child) {
+                debugPrint('2. Build UserProfile Consumer');
+                return Text('Xin chào, ${user.name}', style: Theme.of(context).textTheme.headlineSmall);
+              },
+            ),
+            const SizedBox(height: 24.0),
+            // Nút bấm thêm hàng: Dùng context.read để KHÔNG BỊ REBUILD khi giỏ hàng đổi
+            ElevatedButton(
+              onPressed: () {
+                context.read<CartModel>().addItem('PROD_001');
+              },
+              child: const Text('Thêm sản phẩm PROD_001'),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tối ưu hóa cực hạn với Selector: Chỉ rebuild khi TỔNG SỐ LƯỢNG thay đổi
+class CartBadgeAction extends StatelessWidget {
+  const CartBadgeAction({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<CartModel, int>(
+      // Trích xuất lát cắt dữ liệu: Chỉ theo dõi totalItemCount
+      selector: (context, cart) => cart.totalItemCount,
+      builder: (context, totalCount, child) {
+        debugPrint('3. Build CartBadgeAction Selector: count = $totalCount');
+        return Padding(
+          padding: const EdgeInsets.only(right: 16.0),
+          child: Badge(
+            label: Text('$totalCount'),
+            child: child, // Sử dụng lại icon tĩnh, không tạo lại Icon widget
+          ),
         );
       },
-      // child: Widget static, không phụ thuộc vào cart
-      // Được build một lần và pass vào builder
-      child: const Text('Giỏ hàng của bạn'),
+      child: const Icon(Icons.shopping_cart), // Child tĩnh tối ưu hóa
+    );
+  }
+}
+```
+
+---
+
+## Phần 4 — Lỗi Thường Gặp & Giải Pháp Khắc Phục (Anti-Patterns & Pitfalls)
+
+### 4.1 — Sử dụng `context.watch()` bên trong hàm callback sự kiện
+
+#### Mô tả lỗi:
+Gọi `context.watch<T>()` bên trong `onPressed` hoặc `onTap`:
+
+```dart
+// SAI LẦM PHỔ BIẾN
+ElevatedButton(
+  onPressed: () {
+    // Ném ngoại lệ hoặc gây rebuild ngoài ý muốn:
+    // "Tried to listen to a value exposed with provider, from outside of the widget tree."
+    final cart = context.watch<CartModel>();
+    cart.addItem('ITEM_1');
+  },
+  child: const Text('Thêm vào giỏ'),
+)
+```
+
+#### Nguyên nhân kỹ thuật:
+`context.watch()` được thiết kế để đăng ký mối quan hệ phụ thuộc trong quá trình widget đang **được vẽ (Build Phase)**. Khi gọi bên trong callback sự kiện (vốn được kích hoạt sau khi pha Build đã kết thúc), việc cố gắng ghi nhận dependency vào Element sẽ gây ra ngoại lệ bảo vệ hoặc khiến toàn bộ nút bấm bị đưa vào danh sách bẩn không cần thiết.
+
+#### Giải pháp:
+Quy tắc bất biến: **Trong callback sự kiện, luôn luôn sử dụng `context.read<T>()`**.
+
+---
+
+### 4.2 — Sử dụng `context.watch()` ở phạm vi quá rộng trên đỉnh màn hình
+
+#### Mô tả lỗi:
+Đặt `final model = context.watch<MyModel>()` ngay ở dòng đầu tiên của phương thức `build()` trên một `Scaffold` lớn chứa hàng chục widget con. Mỗi khi một thuộc tính nhỏ của `MyModel` thay đổi, toàn bộ màn hình bao gồm cả AppBar, Drawer, Background đều bị ép rebuild lại từ đầu.
+
+#### Giải pháp:
+1. Đẩy logic lắng nghe xuống các node lá hẹp nhất bằng cách sử dụng `Consumer<T>`.
+2. Hoặc sử dụng `context.select<T, R>()` / `Selector<T, R>` để chỉ phản ứng với các trường dữ liệu cụ thể.
+
+---
+
+### 4.3 — Trả về tham chiếu đối tượng mới tạo trong `context.select()`
+
+#### Mô tả lỗi:
+Viết hàm selector trả về một `List` hoặc `Map` mới được tạo ngay trong hàm:
+
+```dart
+// PHẢN MẪU: Gây rebuild liên tục không dừng
+final filteredItems = context.select<CartModel, List<String>>(
+  (cart) => cart.items.keys.where((k) => k.startsWith('A')).toList(), // TẠO LIST MỚI MỖI LẦN!
+);
+```
+
+#### Nguyên nhân kỹ thuật:
+Mỗi lần model notify, hàm selector chạy lại và tạo ra một instance `List` mới với địa chỉ ô nhớ khác biệt. Phép so sánh mặc định sẽ nhận định hai mảng là khác nhau (`oldList != newList`), dẫn đến việc widget luôn luôn bị rebuild ngay cả khi danh sách các phần tử bên trong hoàn toàn không đổi.
+
+#### Giải pháp:
+Chuyển logic lọc vào bên trong Model và chỉ expose ra dữ liệu đã được cache, hoặc chỉ select các giá trị nguyên thủy (primitive types như `int`, `String`, `bool`).
+
+---
+
+## Phần 5 — Câu Hỏi Kiểm Tra Kiến Thức Chuyên Sâu & Bài Tập Phân Tích Mã Nguồn (Technical Assessment & Code Tracing)
+
+### 5.1 — Câu hỏi khảo sát kiến trúc
+
+#### Câu 1: Cơ chế làm phẳng cây của `MultiProvider`
+*Đề bài:* Tại sao `MultiProvider` có thể gộp hàng chục provider lồng nhau thành một danh sách phẳng mà không làm suy giảm hiệu năng kết xuất của Render Tree?
+
+*Phân tích kỹ thuật:*
+1. Về mặt bản chất, `MultiProvider` sử dụng đệ quy để lồng các provider con vào tham số `child` của provider trước nó:
+   ```dart
+   ProviderA(child: ProviderB(child: ProviderC(child: child)))
+   ```
+2. Tuy nhiên, các lớp `Provider` đều là các `InheritedWidget`. Chúng sinh ra `InheritedElement` trên Element Tree nhưng **hoàn toàn không sinh ra bất kỳ RenderObject nào** trên Render Tree.
+3. Vì Render Tree hoàn toàn không bị phình to (số lượng node hình học giữ nguyên), chi phí thực thi layout, paint và compositing của GPU là $O(1)$, hoàn toàn không bị ảnh hưởng bởi số lượng provider được khai báo.
+
+---
+
+#### Câu 2: Sự khác biệt bản chất giữa `ProxyProvider` và truyền tham số qua Constructor
+*Đề bài:* Khi một Service (ví dụ: `OrderService`) phụ thuộc vào một Model khác (ví dụ: `AuthToken`), tại sao việc sử dụng `ProxyProvider` lại vượt trội hơn so với việc khởi tạo thủ công qua constructor?
+
+*Phân tích kỹ thuật:*
+1. Khi `AuthToken` thay đổi (người dùng đăng nhập hoặc refresh token), `ProxyProvider` tự động bắt giữ instance mới và cập nhật lại tham chiếu cho `OrderService` thông qua hàm `update: (context, auth, previousOrderService) => ...`.
+2. Nó cho phép tái sử dụng lại instance `OrderService` cũ mà không cần khởi tạo lại toàn bộ kết nối mạng hoặc cấu hình nội bộ.
+3. Đảm bảo tính toàn vẹn của đồ thị phụ thuộc (Dependency Graph) trên toàn bộ vòng đời của ứng dụng.
+
+---
+
+### 5.2 — Bài tập phân tích luồng thực thi (Code Tracing)
+
+#### Đề bài:
+Cho cấu trúc chương trình sử dụng Provider sau:
+
+```dart
+class UserModel extends ChangeNotifier {
+  String name = 'Alice';
+  int age = 25;
+
+  void celebrateBirthday() {
+    age++;
+    notifyListeners();
+  }
+
+  void rename(String newName) {
+    name = newName;
+    notifyListeners();
+  }
+}
+
+class DashboardScreen extends StatelessWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    debugPrint('1. Build DashboardScreen');
+    return Scaffold(
+      body: Column(
+        children: [
+          const UserNameWatcher(),   // (Node A)
+          const UserAgeSelector(),   // (Node B)
+          const ActionButtonGroup(), // (Node C)
+        ],
+      ),
     );
   }
 }
 
-// context.watch() — sugar syntax, cùng tác dụng với Consumer
-class CartBadge extends StatelessWidget {
-  const CartBadge({super.key});
-
+class UserNameWatcher extends StatelessWidget {
+  const UserNameWatcher({super.key});
   @override
   Widget build(BuildContext context) {
-    // watch: subscribe → rebuild khi cart notify
-    final cart = context.watch<ShoppingCart>();
-    return Badge.count(
-      count: cart.itemCount,
-      isLabelVisible: cart.itemCount > 0,
-      child: const Icon(Icons.shopping_cart),
+    // Đọc trường name bằng context.select
+    final name = context.select<UserModel, String>((u) => u.name);
+    debugPrint('2. Build UserNameWatcher: $name');
+    return Text(name);
+  }
+}
+
+class UserAgeSelector extends StatelessWidget {
+  const UserAgeSelector({super.key});
+  @override
+  Widget build(BuildContext context) {
+    // Sử dụng Selector chỉ theo dõi age
+    return Selector<UserModel, int>(
+      selector: (_, u) => u.age,
+      builder: (_, age, __) {
+        debugPrint('3. Build UserAgeSelector Builder: $age');
+        return Text('Tuổi: $age');
+      },
     );
   }
 }
 
-// context.read() — không rebuild
-class AddToCartButton extends StatelessWidget {
-  final Product product;
-  const AddToCartButton({super.key, required this.product});
-
+class ActionButtonGroup extends StatelessWidget {
+  const ActionButtonGroup({super.key});
   @override
   Widget build(BuildContext context) {
+    debugPrint('4. Build ActionButtonGroup');
     return ElevatedButton(
       onPressed: () {
-        // read: không subscribe → dùng trong callback
-        context.read<ShoppingCart>().addProduct(product);
+        context.read<UserModel>().celebrateBirthday();
       },
-      child: const Text('Thêm vào giỏ'),
+      child: const Text('Tăng tuổi'),
     );
   }
 }
 ```
 
-### 3.3 — Selector — Fine-grained rebuild
+Giả sử ứng dụng đã hoàn tất lượt render đầu tiên. Người dùng bấm vào nút `'Tăng tuổi'` tại `ActionButtonGroup`.
 
-```dart
-// Vấn đề với context.watch():
-// Cart có nhiều field: items, total, discount, deliveryFee
-// CartBadge chỉ cần itemCount — nhưng watch rebuild khi bất kỳ field nào thay đổi
-
-// Selector: chỉ rebuild khi phần cụ thể thay đổi
-class CartBadgeOptimized extends StatelessWidget {
-  const CartBadgeOptimized({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // Selector<T (provider type), R (selected value type)>
-    // builder chỉ rebuild khi giá trị selector fn thay đổi
-    return Selector<ShoppingCart, int>(
-      selector: (_, cart) => cart.itemCount, // Chọn chỉ itemCount
-      builder: (context, count, child) {
-        // Chỉ rebuild khi itemCount thay đổi
-        // Không rebuild khi cart.discount thay đổi!
-        return Badge.count(
-          count: count,
-          isLabelVisible: count > 0,
-          child: child!,
-        );
-      },
-      child: const Icon(Icons.shopping_cart),
-    );
-  }
-}
-
-// Selector với record (Dart 3)
-class CartInfoRow extends StatelessWidget {
-  const CartInfoRow({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Selector<ShoppingCart, (int count, double total)>(
-      selector: (_, cart) => (cart.itemCount, cart.total),
-      // shouldRebuild: custom equality (default: ==)
-      shouldRebuild: (prev, next) => prev != next,
-      builder: (context, (count, total), _) {
-        return Row(
-          children: [
-            Text('$count sản phẩm'),
-            const Spacer(),
-            Text('${total.toStringAsFixed(0)}đ'),
-          ],
-        );
-      },
-    );
-  }
-}
-```
-
-### 3.4 — Migrate từ InheritedNotifier sang Provider
-
-```dart
-// TRƯỚC (bài 5.3): InheritedNotifier
-class CartProvider extends InheritedNotifier<ShoppingCart> {
-  const CartProvider({
-    super.key,
-    required ShoppingCart cart,
-    required super.child,
-  }) : super(notifier: cart);
-
-  static ShoppingCart of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<CartProvider>()!.notifier!;
-}
-
-// Widget root:
-CartProvider(
-  cart: ShoppingCart(),
-  child: MaterialApp(...)
-)
-
-// SAU: Provider (ít boilerplate hơn, features phong phú hơn)
-// Không cần CartProvider class riêng!
-ChangeNotifierProvider<ShoppingCart>(
-  create: (_) => ShoppingCart(),
-  child: MaterialApp(...),
-)
-
-// Widget: thay CartProvider.of(context) bằng context.watch/read
-// TRƯỚC:
-final cart = CartProvider.of(context);
-
-// SAU:
-final cart = context.watch<ShoppingCart>(); // Rebuild khi cart notify
-// hoặc:
-final cart = context.read<ShoppingCart>(); // Không rebuild
-```
+Hãy xác định chính xác:
+1. Những thông báo log nào sẽ xuất hiện trên console khi lượt render thứ hai kết thúc?
+2. Node nào trong số DashboardScreen, Node A, Node B, Node C **bị rebuild**? Node nào **được bỏ qua hoàn toàn**?
+3. Giải thích tại sao `UserNameWatcher` (Node A) có hoặc không bị rebuild dù nó cũng nằm trong cây con dưới Provider.
 
 ---
 
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+#### Đáp án phân tích:
 
-### ❌ Anti-pattern 1: context.watch() trong callback
-
-```dart
-// ❌ Sai: context.watch() trong onPressed — gây vấn đề
-ElevatedButton(
-  onPressed: () {
-    final cart = context.watch<ShoppingCart>(); // ❌ Trong callback!
-    cart.addProduct(product);
-  },
-  child: const Text('Add'),
-)
-
-// ✅ Đúng: context.read() trong callback
-ElevatedButton(
-  onPressed: () {
-    context.read<ShoppingCart>().addProduct(product); // ✅
-  },
-  child: const Text('Add'),
-)
+**1. Kết quả log in ra trên Console:**
 ```
-
-### ❌ Anti-pattern 2: Provider trong build() trực tiếp
-
-```dart
-// ❌ Sai: Tạo provider trong build → recreate mỗi lần parent rebuild
-Widget build(BuildContext context) {
-  return ChangeNotifierProvider( // ❌ Tạo mới mỗi rebuild!
-    create: (_) => ShoppingCart(),
-    child: const CartScreen(),
-  );
-}
-
-// ✅ Đúng: Provider ở level phù hợp trong widget tree
-// (StatefulWidget nếu cần, hoặc root của route)
+3. Build UserAgeSelector Builder: 26
 ```
-
-### ❌ Anti-pattern 3: Selector với complex object không implement ==
-
-```dart
-// ❌ Sai: Selector không biết CartSummary thay đổi vì no == override
-Selector<Cart, CartSummary>(
-  selector: (_, cart) => CartSummary(count: cart.count, total: cart.total),
-  // CartSummary không implement == → luôn rebuild!
-)
-
-// ✅ Đúng: Selector với primitive hoặc Record
-Selector<Cart, (int, double)>(
-  selector: (_, cart) => (cart.count, cart.total), // Record có == tự động
-  builder: ...
-)
-```
-
----
-
-## Phần 5 — Bài Tập Củng Cố Tư Duy
-
-### Challenge: Migrate InheritedNotifier Cart → Provider
-
-**Bài tập:** Lấy code từ bài 5.3 (`InheritedNotifier`) và migrate sang `provider` package:
-
-1. Xóa `CartProvider extends InheritedNotifier`
-2. Thêm `provider` dependency
-3. Wrap root với `ChangeNotifierProvider<ShoppingCart>`
-4. Thay `CartProvider.of(context)` bằng `context.watch<ShoppingCart>()`
-5. Thay `CartProvider.of(context)` trong callbacks bằng `context.read<ShoppingCart>()`
-6. Tối ưu badge với `Selector<ShoppingCart, int>` (chỉ rebuild theo itemCount)
-
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
-
----
-
-#### Q1 [Junior] — "Provider package build trên gì? Có 'magic' không?"
-
-**Trả lời chuẩn:**
-
-Provider build hoàn toàn trên `InheritedWidget` — không có magic, chỉ là abstraction layer giúp dễ dùng hơn:
-
-```
-Provider ecosystem:
-  ChangeNotifierProvider<T>
-    → InheritedNotifier<T>        (= InheritedWidget + auto-listen Notifier)
-      → InheritedWidget             (Flutter built-in)
-        → dependOnInheritedWidgetOfExactType (Flutter built-in)
-
-context.watch<T>()
-  → dependOnInheritedWidgetOfExactType<InheritedProvider<T>>()
-  → trả về T value, đăng ký dependency
-
-context.read<T>()
-  → getInheritedWidgetOfExactType<InheritedProvider<T>>()
-  → trả về T value, KHÔNG đăng ký dependency
-```
-
-**Provider thêm gì so với InheritedWidget thuần:**
-- **Lifecycle management:** Tự dispose ChangeNotifier khi Provider bị remove
-- **MultiProvider:** Gom nhiều providers không bị pyramid nesting
-- **Type inference:** Không cần generic type mỗi lần
-- **Error messages:** Readable hơn khi Provider not found
-
----
-
-#### Q2 [Junior] — "Khi nào dùng `Consumer` vs `context.watch()`?"
-
-**Trả lời chuẩn:**
-
-| | `context.watch<T>()` | `Consumer<T>` |
-|---|---|---|
-| **Vị trí** | Trong `build()` method | Bất kỳ đâu trong widget tree |
-| **Rebuild scope** | Toàn bộ widget `build()` | Chỉ phần trong `builder` callback |
-| **`child` param** | Không có | Có — static widget không rebuild |
-| **Code style** | Clean, functional | Explicit, verbose hơn |
-
-```dart
-// context.watch — rebuild toàn bộ _CartScreenState.build()
-@override
-Widget build(BuildContext context) {
-  final cart = context.watch<CartModel>(); // toàn build() rebuild
-  return Column(children: [
-    const ExpensiveStaticWidget(), // rebuild cùng với cart update!
-    Text('${cart.items.length} items'),
-  ]);
-}
-
-// Consumer — chỉ rebuild phần cần
-@override
-Widget build(BuildContext context) {
-  return Column(children: [
-    const ExpensiveStaticWidget(), // KHÔNG rebuild khi cart thay đổi
-    Consumer<CartModel>(
-      builder: (ctx, cart, child) => Text('${cart.items.length} items'),
-      // child: optional static widget được pass vào builder (không rebuild)
-    ),
-  ]);
-}
-```
-
-**Rule of thumb:** Dùng `context.watch()` khi rebuild scope nhỏ (leaf widget). Dùng `Consumer` khi cần isolate rebuild trong một widget phức tạp.
-
----
-
-#### Q3 [Middle] — "Tại sao `Selector` tốt hơn `Consumer` cho rebuild optimization?"
-
-**Trả lời chuẩn:**
-
-`Consumer` rebuild khi **bất kỳ thứ gì** trong ChangeNotifier thay đổi (vì nghe `notifyListeners()`). `Selector` rebuild chỉ khi **giá trị được select** thay đổi:
-
-```dart
-class UserProfile extends ChangeNotifier {
-  String _name = 'Alice';
-  int _age = 30;
-  bool _isOnline = false;
-  
-  // Khi _isOnline thay đổi → notifyListeners() → Consumer rebuild
-  void setOnline(bool online) {
-    _isOnline = online;
-    notifyListeners();
-  }
-  
-  void updateName(String name) {
-    _name = name;
-    notifyListeners();
-  }
-}
-
-// Consumer — rebuild khi isOnline hoặc name hoặc age thay đổi
-Consumer<UserProfile>(
-  builder: (ctx, profile, _) => Text(profile.name), // chỉ cần name!
-)
-
-// Selector — chỉ rebuild khi name thay đổi
-Selector<UserProfile, String>(
-  selector: (ctx, profile) => profile.name, // chỉ watch name
-  builder: (ctx, name, _) => Text(name),
-)
-// isOnline thay đổi → Selector.selector() return 'Alice' = 'Alice' → KHÔNG rebuild
-```
-
-**Use case quan trọng:** Khi app có nhiều unrelated state fields, `Selector` tránh cascade rebuild không cần thiết.
-
----
-
-#### Q4 [Senior] — "`context.watch<T>()` internals: gọi `dependOnInheritedWidgetOfExactType` hay cơ chế khác?"
-
-**Trả lời chuẩn:**
-
-`context.watch<T>()` là extension method được Provider package thêm vào `BuildContext`. Nó delegate đến `Provider.of<T>(context, listen: true)`:
-
-```dart
-// Provider source (simplified)
-static T of<T>(BuildContext context, {bool listen = true}) {
-  try {
-    return Provider._inheritedElementOf<T>(context, listen: listen);
-  } catch (e) { ... }
-}
-
-static T _inheritedElementOf<T>(BuildContext context, {required bool listen}) {
-  final inheritedElement = context._getElementForInheritedWidgetOfExactType<InheritedProvider<T>>();
-  
-  if (listen) {
-    // Giống dependOnInheritedWidgetOfExactType
-    context.dependOnInheritedElement(inheritedElement);
-  }
-  
-  return inheritedElement.value; // trả về T value từ InheritedProvider
-}
-```
-
-**Cơ chế:** Về cơ bản là `dependOnInheritedWidgetOfExactType<InheritedProvider<T>>()` nhưng extract value từ đó. Provider wraps ChangeNotifier trong `InheritedNotifier<T>` — khi Notifier `notifyListeners()`, InheritedNotifier mark dirty → `InheritedElement.notifyClients()` → rebuild watchers.
-
-**Điểm tinh tế:** Provider dùng `InheritedProvider` (không phải `InheritedNotifier` trực tiếp) với `_NotifierAspect` để support fine-grained watching trong một số trường hợp.
-
----
-
-#### Q5 [Middle] — "`ProxyProvider` vs `ChangeNotifierProxyProvider` — khác nhau thế nào?"
-
-**Trả lời chuẩn:**
-
-| | `ProxyProvider<A, B>` | `ChangeNotifierProxyProvider<A, B>` |
-|---|---|---|
-| **Output type B** | Any object | `ChangeNotifier` subclass |
-| **B mutable** | Không — mỗi lần A thay đổi, B mới được tạo | Có — B được update thay vì recreate |
-| **Listeners** | B không listen được | B có thể `notifyListeners()` |
-| **Use case** | Transform A sang computed value | B cần A data + tự có state |
-
-```dart
-// ProxyProvider — khi B là simple computed value
-ProxyProvider<AuthModel, ApiClient>(
-  update: (ctx, auth, _) => ApiClient(token: auth.token),
-  // Mỗi khi AuthModel thay đổi → ApiClient MỚI được tạo
-  child: const App(),
-)
-
-// ChangeNotifierProxyProvider — khi B là ChangeNotifier phụ thuộc A
-ChangeNotifierProxyProvider<AuthModel, CartModel>(
-  create: (ctx) => CartModel(),
-  update: (ctx, auth, cart) {
-    cart!.updateToken(auth.token); // update existing CartModel với data mới
-    return cart; // trả về CÙNG instance (không tạo mới)
-  },
-  child: const App(),
-)
-```
-
----
-
-#### Q6 [Senior] — "`Selector<T, S>` so sánh giá trị bằng `==` hay custom? Ảnh hưởng khi select List/Map?"
-
-**Trả lời chuẩn:**
-
-`Selector` dùng hàm `shouldRebuild` — mặc định là `==`:
-
-```dart
-// Provider source
-class Selector<A, S> extends Selector0<S> {
-  Selector({
-    required S Function(BuildContext, A) selector,
-    bool Function(S, S)? shouldRebuild, // custom equality function
-    required Widget Function(BuildContext, S, Widget?) builder,
-    ...
-  });
-}
-```
-
-**Vấn đề với List/Map:**
-
-```dart
-// ❌ Vấn đề: selector trả về List mới mỗi lần → == false → luôn rebuild
-Selector<UserModel, List<String>>(
-  selector: (ctx, user) => user.friends, // nếu friends là new List mỗi lần
-  builder: (ctx, friends, _) => FriendsList(friends: friends),
-)
-// user.friends không thay đổi nhưng return List mới → Selector rebuild!
-
-// ✅ Fix 1: return cùng instance nếu không thay đổi
-Selector<UserModel, List<String>>(
-  selector: (ctx, user) => user.friends, // UserModel trả về CÙNG List instance
-  shouldRebuild: (prev, next) => !listEquals(prev, next), // deep compare
-  builder: ...
-)
-
-// ✅ Fix 2: selector trả về derived value không phải collection
-Selector<UserModel, int>(
-  selector: (ctx, user) => user.friends.length, // int → == đơn giản
-  builder: (ctx, count, _) => Text('$count friends'),
-)
-```
-
-**Best practice:** Chọn selector value là primitive type khi có thể. Nếu cần collection, implement `shouldRebuild` với `listEquals`/`mapEquals` từ `foundation.dart`.
-
----
-
-#### Q7 [Trace Code] — "`context.read()` vs `context.watch()` trong callback: cái nào an toàn?"
-
-```dart
-class ProductPage extends StatelessWidget {
-  const ProductPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // (A) watch trong build
-    final cart = context.watch<CartModel>();
-
-    return Column(
-      children: [
-        Text('Items: ${cart.items.length}'),
-        
-        // (B) watch trong builder callback
-        Builder(
-          builder: (ctx) {
-            final cart2 = ctx.watch<CartModel>(); // context từ Builder
-            return Text('Items (b): ${cart2.items.length}');
-          },
-        ),
-        
-        // (C) read trong onPressed
-        ElevatedButton(
-          onPressed: () {
-            context.read<CartModel>().addItem('apple'); // read trong callback
-          },
-          child: const Text('Add'),
-        ),
-        
-        // (D) watch trong onPressed — NGUY HIỂM
-        ElevatedButton(
-          onPressed: () {
-            final cartD = context.watch<CartModel>(); // watch trong callback!
-            cartD.addItem('banana');
-          },
-          child: const Text('Add Banana'),
-        ),
-      ],
-    );
-  }
-}
-```
-
-**Phân tích:**
-
-- **(A) `context.watch()` trong `build()`** → ✅ **Đúng** — register dependency → widget rebuild khi CartModel thay đổi
-
-- **(B) `ctx.watch()` trong Builder's `builder`** → ✅ **Đúng** — `ctx` là context của Builder widget, Builder được rebuild khi CartModel thay đổi (scope nhỏ hơn)
-
-- **(C) `context.read()` trong `onPressed`** → ✅ **Đúng** — đọc 1 lần trong callback, không cần watch. Đây là cách khuyến nghị.
-
-- **(D) `context.watch()` trong `onPressed`** → ❌ **SAI** — gọi `dependOnInheritedWidgetOfExactType` trong callback (không phải trong `build()`) → **Flutter warn** hoặc unexpected behavior. Watch chỉ có ý nghĩa trong `build()` — nếu gọi trong callback, dependency được đăng ký sai lúc. Flutter lint `provider_parameters` sẽ cảnh báo về điều này.
-
-**Rule:** `context.read()` → callbacks/initState. `context.watch()` → chỉ trong `build()`.
+*(Chỉ duy nhất callback builder của UserAgeSelector chạy lại).*
+
+**2. Phân tích chi tiết trạng thái từng Node:**
+- **`DashboardScreen`:** **KHÔNG bị rebuild** (không in log 1). Do `DashboardScreen` không gọi bất kỳ phương thức nào lắng nghe `UserModel`.
+- **Node C (`ActionButtonGroup`):** **KHÔNG bị rebuild** (không in log 4). Nút bấm sử dụng `context.read<UserModel>()`, chỉ lấy tham chiếu hàm để thực thi mà không đăng ký dependency.
+- **Node A (`UserNameWatcher`):** **KHÔNG bị rebuild** (không in log 2).
+  - *Giải thích:* Node A sử dụng `context.select<UserModel, String>((u) => u.name)`.
+  - Khi `celebrateBirthday()` chạy, chỉ có thuộc tính `age` tăng từ `25` lên `26`, trong khi thuộc tính `name` vẫn giữ nguyên là `'Alice'`.
+  - `InheritedModel` so sánh kết quả selector: `'Alice' == 'Alice'` $\to$ Không có sự thay đổi về khía cạnh quan sát $\longrightarrow$ **Framework bỏ qua Node A hoàn toàn**.
+- **Node B (`UserAgeSelector`):**
+  - Bản thân widget `UserAgeSelector` là một `const` widget nên phương thức `build()` của nó **không chạy lại**.
+  - Tuy nhiên, bên trong nó có `Selector<UserModel, int>` quan sát trường `age`.
+  - Khi `age` đổi từ `25` sang `26`, `Selector` phát hiện `oldValue != newValue` $\longrightarrow$ **Chỉ duy nhất callback `builder` của `Selector` được kích hoạt** và in ra: `"3. Build UserAgeSelector Builder: 26"`.

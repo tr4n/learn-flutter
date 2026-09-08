@@ -1,202 +1,304 @@
-# Bài 3.4 — Ticker & AnimationController Lifecycle
+# Bài 3.4 — Vòng Đời Ticker & AnimationController (Animation Lifecycle)
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Cơ Chế Đồng Bộ VSync (Concepts & Hardware Synchronization)
 
-### Tại sao bài này quan trọng?
+### 1.1 — Tín hiệu VSync phần cứng và hạn chế của bộ định thời phần mềm
 
-Memory leak phổ biến thứ hai trong Flutter (sau stream subscription):
+Hoạt ảnh (Animation) trong giao diện người dùng kỹ thuật số là một chuỗi các khung hình tĩnh được kết xuất liên tiếp ở tốc độ cao để tạo cảm giác chuyển động mượt mà. 
 
-```dart
-class _AnimatedState extends State<AnimatedWidget> {
-  late AnimationController _controller;
+Trong hệ thống đồ họa di động, tấm nền màn hình quét làm tươi theo một tần số cố định hoặc biến thiên:
+- Màn hình tiêu chuẩn: **60Hz** (mỗi khung hình xuất hiện sau **16.67ms**).
+- Màn hình tần số quét cao (ProMotion / 120Hz): **120Hz** (mỗi khung hình xuất hiện sau **8.33ms**).
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, ...);
-    // QUÊN dispose! → AnimationController giữ Ticker alive
-    // → Ticker vẫn tick mỗi frame → memory leak + battery drain
-  }
-  // Không có dispose()!
-}
+Mỗi khi tấm nền màn hình sẵn sàng hiển thị một khung hình mới, hệ điều hành (Android SurfaceFlinger hoặc iOS CADisplayLink) sẽ phát ra một xung nhịp phần cứng gọi là **VSync (Vertical Synchronization)**.
+
+#### Hạn chế của bộ định thời phần mềm (`Timer.periodic`):
+1. **Lệch pha VSync (Phase Misalignment):** `Timer.periodic` hoạt động dựa trên Event Loop thông thường của Dart runtime, hoàn toàn độc lập với nhịp quét của phần cứng. Nếu Timer phát tín hiệu lệch pha so với VSync, khung hình được vẽ ra không khớp với thời điểm màn hình làm tươi, gây ra hiện tượng giật khung hình (*micro-stuttering*) hoặc xé hình (*screen tearing*).
+2. **Độ trễ do nghẽn luồng (Event Loop Latency):** Nếu luồng chính của Dart bận xử lý dữ liệu JSON hoặc tác vụ tính toán, callback của `Timer` sẽ bị đẩy lùi trong hàng đợi Event Queue, làm rơi khung hình (drop frame).
+3. **Không thích ứng với Variable Refresh Rate (VRR):** Timer phần mềm không thể tự điều chỉnh chu kỳ khi thiết bị chuyển đổi linh hoạt giữa 60Hz, 90Hz và 120Hz.
+
+#### Giải pháp của Flutter: Cơ chế đồng bộ Ticker
+Flutter giải quyết triệt để vấn đề này bằng cách đưa đối tượng `Ticker` vào tầng Scheduler (`package:flutter/scheduler.dart`). Thay vì chủ động đếm thời gian bằng phần mềm, `Ticker` đăng ký trực tiếp một frame callback với C++ Engine. Chỉ khi nào phần cứng màn hình phát tín hiệu VSync, engine mới đánh thức `Ticker` để tính toán bước chuyển tiếp tiếp theo của hoạt ảnh.
+
 ```
-
-Flutter sẽ cảnh báo bằng assertion error trong debug mode, nhưng trong release — nó sẽ âm thầm leak.
-
-### Bạn sẽ hiểu được sau bài này:
-- Ticker là gì — cầu nối giữa VSync và animation
-- `TickerProviderStateMixin` vs `SingleTickerProviderStateMixin`
-- AnimationController: `forward`, `reverse`, `repeat`, `stop`
-- `addListener` vs `AnimatedBuilder` vs `AnimationBuilder` — khi nào dùng cái nào
-- Tại sao `dispose()` AnimationController là bắt buộc
+Hệ điều hành / Tấm nền màn hình
+       │
+       ▼ [Xung nhịp phần cứng: VSync (60Hz / 120Hz)]
+Flutter C++ Engine (CADisplayLink / SurfaceFlinger)
+       │
+       ▼ [SchedulerBinding.scheduleFrameCallback]
+Ticker (package:flutter/scheduler.dart)
+       │
+       ▼ [onTick(Duration elapsed)]
+AnimationController (Tính toán giá trị: value = elapsed / duration)
+       │
+       ▼
+Rendering Pipeline (Painting & GPU Layer Compositing)
+```
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+### 1.2 — Định nghĩa kỹ thuật: Ticker, TickerProvider và AnimationController
 
-### Ticker → AnimationController → Animation
+1. **`Ticker`**: Đối tượng đóng vai trò là "bộ lắng nghe xung nhịp". Mỗi khi nhận được tín hiệu VSync từ `SchedulerBinding`, `Ticker` sẽ thực thi một `TickerCallback` đồng thời cung cấp mốc thời gian thực tế đã trôi qua (`Duration elapsed`).
+2. **`TickerProvider`**: Một abstract interface hoạt động như một factory chuyên cấp phát các đối tượng `Ticker` thông qua phương thức `Ticker createTicker(TickerCallback onTick)`. Trong Flutter UI, interface này thường được cung cấp thông qua các mixin được gắn vào `State`.
+3. **`AnimationController`**: Lớp điều khiển hoạt ảnh kế thừa từ `Animation<double>` và `Listenable`. Nó nhận xung nhịp từ `Ticker`, tính toán giá trị nội suy tuyến tính từ $0.0$ đến $1.0$ dựa trên thời gian thực tế đã trôi qua so với tổng thời lượng (`duration`), và phát tín hiệu thông báo cho các listener.
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động & Mã Nguồn Đối Chiếu (Framework Internals)
+
+### 2.1 — Phân tích mã nguồn `package:flutter/src/scheduler/ticker.dart`
+
+```dart
+// Source code: packages/flutter/lib/src/scheduler/ticker.dart
+class Ticker {
+  Ticker(this._onTick);
+  final TickerCallback _onTick;
+  
+  int? _animationId;
+  Duration? _startTime;
+
+  TickerFuture start() {
+    assert(!isActive);
+    _future = TickerFuture._();
+    _startTime = null;
+    _scheduleTick();
+    return _future!;
+  }
+
+  void _scheduleTick() {
+    assert(isActive);
+    // Đăng ký trực tiếp callback với SchedulerBinding của Engine
+    _animationId = SchedulerBinding.instance.scheduleFrameCallback(_tick);
+  }
+
+  void _tick(Duration timeStamp) {
+    _animationId = null;
+    _startTime ??= timeStamp;
+    
+    // Tính toán thời gian thực tế đã trôi qua kể từ khi animation bắt đầu
+    final Duration elapsed = timeStamp - _startTime!;
+    
+    // Kích hoạt callback truyền mốc thời gian sang AnimationController
+    _onTick(elapsed);
+
+    // Nếu Ticker vẫn còn active, tiếp tục yêu cầu frame VSync tiếp theo
+    if (isActive) {
+      _scheduleTick();
+    }
+  }
+}
+```
+
+#### Cơ chế `TickerFuture` và ngoại lệ `TickerCanceled`:
+Phương thức `controller.forward()` trả về một `TickerFuture`. 
+- Khi hoạt ảnh hoàn tất bình thường đến đích ($1.0$), `TickerFuture` hoàn thành thành công.
+- Nếu hoạt ảnh bị dừng giữa chừng (ví dụ: gọi `controller.stop()`, hoặc widget bị unmount dẫn đến `controller.dispose()` khi hoạt ảnh chưa chạy xong): `TickerFuture` sẽ ném ra ngoại lệ `TickerCanceled`.
+- Để tránh unhandled exception khi sử dụng `await controller.forward()`, Flutter cung cấp extension getter `.orCancel`:
+  ```dart
+  // Nuốt ngoại lệ TickerCanceled một cách an toàn khi widget unmount
+  _controller.forward().orCancel.catchError((_) {});
+  ```
+
+---
+
+### 2.2 — Cơ chế phân bổ của `SingleTickerProviderStateMixin` vs `TickerProviderStateMixin`
+
+Flutter cung cấp hai Mixin chính cho lớp `State` để thực thi interface `TickerProvider`:
+
+#### 1. `SingleTickerProviderStateMixin`:
+```dart
+mixin SingleTickerProviderStateMixin<T extends StatefulWidget> on State<T> implements TickerProvider {
+  Ticker? _ticker;
+
+  @override
+  Ticker createTicker(TickerCallback onTick) {
+    // Assertion ràng buộc chỉ cho phép tạo duy nhất 1 Ticker
+    assert(_ticker == null, '$runtimeType is a SingleTickerProviderStateMixin but multiple tickers were created.');
+    _ticker = Ticker(onTick);
+    return _ticker!;
+  }
+
+  @override
+  void dispose() {
+    // Assertion cảnh báo nếu Ticker vẫn đang chạy tại thời điểm State bị hủy
+    assert(_ticker == null || !_ticker!.isActive, '$this was disposed with an active Ticker.');
+    super.dispose();
+  }
+}
+```
+- **Phạm vi sử dụng:** Dành cho các widget chỉ sử dụng duy nhất một `AnimationController`.
+- **Tối ưu hóa:** Tiết kiệm bộ nhớ vì chỉ lưu trữ duy nhất một con trỏ `_ticker`.
+
+#### 2. `TickerProviderStateMixin`:
+```dart
+mixin TickerProviderStateMixin<T extends StatefulWidget> on State<T> implements TickerProvider {
+  Set<Ticker>? _tickers;
+
+  @override
+  Ticker createTicker(TickerCallback onTick) {
+    _tickers ??= <_WidgetTicker>{};
+    final _WidgetTicker result = _WidgetTicker(onTick, this);
+    _tickers!.add(result);
+    return result;
+  }
+
+  @override
+  void dispose() {
+    // Duyệt qua toàn bộ tập hợp Ticker và giải phóng
+    if (_tickers != null) {
+      for (final Ticker ticker in _tickers!) {
+        ticker.dispose();
+      }
+    }
+    super.dispose();
+  }
+}
+```
+- **Phạm vi sử dụng:** Dành cho các widget quản lý từ 2 `AnimationController` trở lên hoặc sử dụng song song với `TabController`.
+
+---
+
+### 2.3 — Cơ chế kiểm soát xung nhịp theo ngữ cảnh `TickerMode`
+
+Một tính năng tiết kiệm tài nguyên quan trọng trong kiến trúc Flutter là widget `TickerMode`:
+
+```dart
+TickerMode(
+  enabled: false, // Tạm dừng toàn bộ Ticker trong cây con
+  child: AnimatedSubtree(),
+)
+```
+
+#### Cách hoạt động bên dưới của Framework:
+1. Mỗi `Ticker` được tạo bởi `TickerProviderStateMixin` hoặc `SingleTickerProviderStateMixin` đều đăng ký theo dõi trạng thái của `TickerMode.of(context)`.
+2. Khi một Route mới được push đè lên trong Navigator, hoặc khi một tab trong `TabBarView` bị cuộn ra ngoài vùng hiển thị: Framework tự động thiết lập `TickerMode(enabled: false)` cho toàn bộ subtree bị che khuất.
+3. Thuộc tính `_WidgetTicker.muted` được kích hoạt thành `true`. Framework lập tức hủy đăng ký callback với `SchedulerBinding`.
+4. Toàn bộ các hoạt ảnh bên dưới rơi vào trạng thái đóng băng tạm thời, không tiêu tốn chu kỳ CPU hay GPU. Khi tab hoặc màn hình hiển thị trở lại (`enabled: true`), `Ticker` tự động đăng ký lại với nhịp VSync kế tiếp mà không làm mất mốc thời gian nội bộ đã tích lũy.
+
+---
+
+### 2.4 — Phổ hiệu năng 3 cấp độ điều khiển hoạt ảnh (Performance Spectrum)
 
 ```mermaid
-sequenceDiagram
-    participant VSync as VSync Signal (60fps)
-    participant Ticker
-    participant Controller as AnimationController
-    participant Tween as Tween/CurvedAnimation
-    participant Widget
+graph TD
+    subgraph Level1 ["Cấp 1: addListener + setState (Kém hiệu quả)"]
+        L1_Tick["Ticker VSync"] --> L1_SetState["setState()"]
+        L1_SetState --> L1_Build["Rebuild toàn bộ subtree"]
+        L1_Build --> L1_Layout["Relayout"]
+        L1_Layout --> L1_Paint["Repaint"]
+    end
 
-    VSync->>Ticker: onTick(elapsed)
-    Ticker->>Controller: _tick(elapsed)
-    Note over Controller: _value = elapsed / duration
-    Controller->>Tween: value property access
-    Tween-->>Controller: transformed value
-    Controller->>Widget: notifyListeners() / addListener callbacks
-    Widget->>Widget: setState() hoặc rebuild
+    subgraph Level2 ["Cấp 2: AnimatedBuilder + Child Caching (Tiêu chuẩn)"]
+        L2_Tick["Ticker VSync"] --> L2_Notify["notifyListeners()"]
+        L2_Notify --> L2_Builder["Chỉ rebuild builder closure"]
+        L2_Builder --> L2_Skip["Bỏ qua child tĩnh (identical)"]
+        L2_Skip --> L2_Paint["Repaint vùng thay đổi"]
+    end
+
+    subgraph Level3 ["Cấp 3: *Transition Widgets (Zero-Rebuild - Tối ưu cực hạn)"]
+        L3_Tick["Ticker VSync"] --> L3_Layer["Cập nhật Transform / Opacity Layer"]
+        L3_Layer --> L3_Zero["0 Element Rebuild!"]
+        L3_Zero --> L3_GPU["GPU Compositing trực tiếp"]
+    end
 ```
 
-### Ticker Lifecycle
+#### Bảng so sánh đặc tính kỹ thuật:
 
-```
-Ticker:
-  active (ticking)  ──[dispose]──►  disposed
-       ↑                               
-  [mixin setup in initState]          
-       │                               
-  paused (khi app background) ←→ active
-```
+| Cấp độ | Phương thức triển khai | Số lượng Element Rebuild | Tác động Rendering Pipeline | Khuyến nghị sử dụng |
+| :--- | :--- | :---: | :--- | :--- |
+| **Cấp 1** | `controller.addListener(() => setState(() {}))` | Toàn bộ subtree | Lặp lại toàn bộ chu kỳ: Build $\to$ Layout $\to$ Paint | **Không sử dụng** cho animation liên tục |
+| **Cấp 2** | `AnimatedBuilder` (kèm tham số `child`) | Chỉ closure của builder | Chỉ build lại các widget động trong builder | Phù hợp khi cần tính toán layout động |
+| **Cấp 3** | `FadeTransition`, `SlideTransition`, `ScaleTransition` | **0** | Bỏ qua Widget Build, cập nhật trực tiếp Render Layer | **Khuyến nghị tối đa** cho các hoạt ảnh chuẩn |
 
-**Tại sao VSync quan trọng:**
-- Không có vsync: animation tick bất kể frame rate → lãng phí CPU
-- Có vsync (TickerProvider): tick đồng bộ với frame rate của màn hình → smooth
+> [!NOTE]
+> **Cơ chế Zero-Rebuild của Transition Widgets:**
+> Các lớp kế thừa từ `AnimatedWidget` (như `SlideTransition`, `FadeTransition`) không sử dụng phương thức `build()` để tạo lại cây con ở mỗi frame. Thay vào đó, chúng lắng nghe `Animation` và triệu gọi trực tiếp `RenderObject.markNeedsPaint()` hoặc thao tác trực tiếp lên Layer của GPU Compositor, giúp duy trì tốc độ 60–120 FPS ổn định tuyệt đối.
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 2.5 — Máy trạng thái 4 pha của `AnimationStatus`
 
-### 3.1 — SingleTickerProviderStateMixin
+Một `AnimationController` trải qua 4 trạng thái chuyển pha khép kín:
 
-```dart
-// Dùng khi chỉ cần 1 AnimationController
-class FadeInWidget extends StatefulWidget {
-  final Widget child;
-  const FadeInWidget({super.key, required this.child});
-  @override State<FadeInWidget> createState() => _FadeInWidgetState();
-}
-
-class _FadeInWidgetState extends State<FadeInWidget>
-    with SingleTickerProviderStateMixin {
-  // SingleTickerProviderStateMixin: tạo 1 Ticker, vsync = this
-  late final AnimationController _controller;
-  late final Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this, // this = mixin cung cấp Ticker
-      duration: const Duration(milliseconds: 500),
-    );
-
-    // CurvedAnimation: apply easing curve lên controller (0.0 → 1.0 linear)
-    _opacity = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeIn,
-    );
-
-    // Auto-start animation khi widget mount
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    // BẮT BUỘC: dispose AnimationController → cancel Ticker → giải phóng resource
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // FadeTransition listen animation → không cần setState
-    return FadeTransition(
-      opacity: _opacity,
-      child: widget.child,
-    );
-  }
-}
+```
+[dismissed] ──(forward())──► [forward] ──(về đích)──► [completed]
+     ▲                                                    │
+     │                                                    │
+     └──────(về gốc)──────── [reverse] ◄──(reverse())─────┘
 ```
 
-### 3.2 — TickerProviderStateMixin — Nhiều controllers
+- **`AnimationStatus.dismissed`**: Hoạt ảnh đang ở điểm xuất phát ban đầu (giá trị bằng `lowerBound`, mặc định $0.0$).
+- **`AnimationStatus.forward`**: Hoạt ảnh đang chuyển động tiến về phía trước (từ `lowerBound` đến `upperBound`).
+- **`AnimationStatus.completed`**: Hoạt ảnh đã đi đến điểm kết thúc (giá trị bằng `upperBound`, mặc định $1.0$).
+- **`AnimationStatus.reverse`**: Hoạt ảnh đang chuyển động lùi về điểm xuất phát (từ `upperBound` về `lowerBound`).
+
+---
+
+## Phần 3 — Mẫu Triển Khai Chuẩn (Standard Implementation Patterns)
+
+### 3.1 — Mẫu triển khai hoạt ảnh Zero-Rebuild kết hợp Transition Widgets
 
 ```dart
-// Dùng khi cần 2+ AnimationController
-class ComplexAnimationWidget extends StatefulWidget {
-  const ComplexAnimationWidget({super.key});
-  @override State<ComplexAnimationWidget> createState() => _ComplexAnimState();
+import 'package:flutter/material.dart';
+
+/// Hoạt ảnh xoay và phóng to đạt hiệu năng tối ưu:
+/// - Không gọi setState trong suốt chu kỳ hoạt ảnh.
+/// - Tận dụng ScaleTransition và RotationTransition để tương tác trực tiếp với Render Layer.
+class PulseTransitionDemo extends StatefulWidget {
+  const PulseTransitionDemo({super.key});
+
+  @override
+  State<PulseTransitionDemo> createState() => _PulseTransitionDemoState();
 }
 
-class _ComplexAnimState extends State<ComplexAnimationWidget>
-    with TickerProviderStateMixin {
-  // TickerProviderStateMixin: tạo nhiều Ticker được
-  late final AnimationController _slideController;
-  late final AnimationController _fadeController;
-  late final AnimationController _scaleController;
-
-  late final Animation<Offset> _slideAnimation;
-  late final Animation<double> _fadeAnimation;
+class _PulseTransitionDemoState extends State<PulseTransitionDemo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
   late final Animation<double> _scaleAnimation;
+  late final Animation<double> _rotationAnimation;
 
   @override
   void initState() {
     super.initState();
 
-    _slideController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 600),
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    final CurvedAnimation curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOutCubic,
     );
-    _fadeController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 400),
-    );
-    _scaleController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 500),
-    );
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1), // Bắt đầu từ dưới
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.elasticOut));
-
-    _fadeAnimation = Tween<double>(begin: 0, end: 1)
-        .animate(_fadeController);
-
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0)
-        .animate(CurvedAnimation(parent: _scaleController, curve: Curves.bounceOut));
-
-    // Staggered: bắt đầu lần lượt
-    _fadeController.forward();
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) _slideController.forward();
-    });
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) _scaleController.forward();
-    });
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(curved);
+    _rotationAnimation = Tween<double>(begin: 0.0, end: 0.5).animate(curved);
   }
 
   @override
   void dispose() {
-    // Dispose tất cả controllers!
-    _slideController.dispose();
-    _fadeController.dispose();
-    _scaleController.dispose();
+    _controller.dispose(); // Bắt buộc giải phóng controller để hủy Ticker
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SlideTransition(
-      position: _slideAnimation,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
+    // Phương thức build chỉ thực thi một lần duy nhất khi widget mount.
+    // Quá trình biến đổi hình học ở các frame tiếp theo được xử lý trực tiếp bởi GPU Compositor.
+    return Center(
+      child: RotationTransition(
+        turns: _rotationAnimation,
         child: ScaleTransition(
           scale: _scaleAnimation,
-          child: const Card(child: FlutterLogo(size: 100)),
+          child: const Card(
+            elevation: 4,
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: FlutterLogo(size: 80),
+            ),
+          ),
         ),
       ),
     );
@@ -204,241 +306,88 @@ class _ComplexAnimState extends State<ComplexAnimationWidget>
 }
 ```
 
-### 3.3 — addListener vs AnimatedBuilder
+---
+
+### 3.2 — Mẫu hoạt ảnh đa bộ điều khiển (Multiple Controllers) kết hợp .orCancel
 
 ```dart
-class LoadingSpinner extends StatefulWidget {
-  const LoadingSpinner({super.key});
-  @override State<LoadingSpinner> createState() => _LoadingSpinnerState();
+import 'package:flutter/material.dart';
+
+/// Quản lý chuỗi hoạt ảnh tuần tự (Staggered Animation) với 2 controller độc lập:
+/// - Sử dụng TickerProviderStateMixin để cấp phát nhiều Ticker.
+/// - Bắt ngoại lệ TickerCanceled an toàn với extension .orCancel.
+class StaggeredPanelSequence extends StatefulWidget {
+  const StaggeredPanelSequence({super.key});
+
+  @override
+  State<StaggeredPanelSequence> createState() => _StaggeredPanelSequenceState();
 }
 
-class _LoadingSpinnerState extends State<LoadingSpinner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+class _StaggeredPanelSequenceState extends State<StaggeredPanelSequence>
+    with TickerProviderStateMixin {
+  late final AnimationController _backdropController;
+  late final AnimationController _panelController;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat(); // Lặp vô hạn
-  }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // ❌ Cách 1: addListener + setState — rebuild TOÀN BỘ widget
-    // (không dùng cách này cho animation loops)
-
-    // ✅ Cách 2: AnimatedBuilder — chỉ rebuild phần trong builder
-    return AnimatedBuilder(
-      animation: _controller,
-      // builder chỉ rebuild phần này, không rebuild parent
-      builder: (context, child) {
-        return Transform.rotate(
-          angle: _controller.value * 2 * 3.14159,
-          // child được pass xuống từ ngoài → không rebuild
-          child: child,
-        );
-      },
-      // child: Widget không thay đổi theo animation → optimize
-      child: const Icon(Icons.refresh, size: 40),
-    );
-  }
-}
-
-// Cách 3: Dùng AnimationController trực tiếp trong Transition widgets
-// FadeTransition, SlideTransition, ScaleTransition, RotationTransition
-// → Hiệu năng tốt nhất, paint trực tiếp không qua rebuild
-class OptimalSpinner extends StatefulWidget { ... }
-class _OptimalSpinnerState extends State<OptimalSpinner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1))
-      ..repeat();
-  }
-
-  @override
-  void dispose() { _controller.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    // RotationTransition không cần rebuild → cực kỳ efficient
-    return RotationTransition(
-      turns: _controller, // Animation value 0.0 → 1.0 = 0 → 360 độ
-      child: const Icon(Icons.refresh, size: 40),
-    );
-  }
-}
-```
-
-### 3.4 — Control animation: forward, reverse, repeat
-
-```dart
-class ExpandableButton extends StatefulWidget {
-  final String label;
-  final VoidCallback onAction;
-  const ExpandableButton({super.key, required this.label, required this.onAction});
-  @override State<ExpandableButton> createState() => _ExpandableButtonState();
-}
-
-class _ExpandableButtonState extends State<ExpandableButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _widthFactor;
-
-  bool _isExpanded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
+    _backdropController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _widthFactor = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+
+    _panelController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
     );
+
+    _executeSequence();
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _toggle() {
-    setState(() => _isExpanded = !_isExpanded);
-    if (_isExpanded) {
-      _controller.forward();  // 0.0 → 1.0
-    } else {
-      _controller.reverse();  // 1.0 → 0.0
+  Future<void> _executeSequence() async {
+    try {
+      // 1. Chạy hiệu ứng backdrop trước
+      await _backdropController.forward().orCancel;
+      
+      // 2. Chạy hiệu ứng trượt panel sau khi backdrop hoàn tất
+      if (mounted) {
+        await _panelController.forward().orCancel;
+      }
+    } on TickerCanceled {
+      // Ngoại lệ được xử lý an toàn khi widget bị unmount giữa chừng
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return FractionallySizedBox(
-          widthFactor: _widthFactor.value,
-          child: child,
-        );
-      },
-      child: ElevatedButton(
-        onPressed: _toggle,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(widget.label),
-            Icon(_isExpanded ? Icons.close : Icons.arrow_forward),
-          ],
-        ),
-      ),
-    );
-  }
-}
-```
-
----
-
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
-
-### ❌ Anti-pattern 1: Quên dispose AnimationController
-
-```dart
-// ❌ Nguy hiểm: memory leak không lỗi rõ ràng
-class _LeakyState extends State<MyWidget>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1));
-    _controller.repeat();
-  }
-  // Không có dispose() → Ticker vẫn tick mỗi frame → battery drain!
-
-// ✅ Đúng: dispose bắt buộc
-  @override
   void dispose() {
-    _controller.dispose(); // Stop ticker, giải phóng resources
+    _backdropController.dispose();
+    _panelController.dispose();
     super.dispose();
   }
-}
-```
-
-### ❌ Anti-pattern 2: Dùng `TickerProviderStateMixin` cho 1 controller
-
-```dart
-// ❌ Không sai nhưng không optimal: TickerProviderStateMixin khi chỉ cần 1 ticker
-class _BadState extends State<MyWidget> with TickerProviderStateMixin {
-  late final AnimationController _controller; // Chỉ 1 controller
-
-// ✅ Đúng: Single cho single controller
-class _GoodState extends State<MyWidget> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-```
-
-### ❌ Anti-pattern 3: addListener + setState cho animation
-
-```dart
-// ❌ Không optimal: setState mỗi frame → rebuild toàn bộ widget subtree
-class _SlowAnimState extends State<MyWidget>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  double _value = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1));
-    _controller.addListener(() {
-      setState(() => _value = _controller.value); // Rebuild mỗi frame!
-    });
-    _controller.repeat();
-  }
 
   @override
   Widget build(BuildContext context) {
-    return Transform.rotate(angle: _value * 2 * 3.14, child: const Icon(Icons.star));
-  }
-}
-
-// ✅ Đúng: AnimatedBuilder chỉ rebuild phần cần
-class _FastAnimState extends State<MyWidget>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1))
-      ..repeat();
-  }
-
-  @override void dispose() { _controller.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, child) => Transform.rotate(
-        angle: _controller.value * 2 * 3.14,
-        child: child,
-      ),
-      child: const Icon(Icons.star), // Static child không rebuild
+    return Stack(
+      children: [
+        FadeTransition(
+          opacity: _backdropController,
+          child: const ColoredBox(color: Colors.black45, child: SizedBox.expand()),
+        ),
+        SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: _panelController, curve: Curves.easeOutCubic)),
+          child: const Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              height: 250,
+              child: Card(child: Center(child: Text('Panel Content'))),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -446,284 +395,162 @@ class _FastAnimState extends State<MyWidget>
 
 ---
 
-## Phần 5 — Bài Tập Củng Cố Tư Duy
+## Phần 4 — Các Bẫy Kỹ Thuật & Giải Pháp (Common Pitfalls & Mitigations)
 
-### Challenge: Implement Loading Spinner với AnimationController
+### 4.1 — Rò rỉ tài nguyên do bỏ sót lệnh dispose() trên AnimationController
 
-**Yêu cầu:**
-1. Spinner quay vô hạn với `RotationTransition`
-2. Có thể `start()` và `stop()` từ parent widget
-3. Khi stop: animation fade out (opacity 1 → 0 trong 200ms)
-4. Khi start: animation fade in và bắt đầu quay
-
-**Thiết kế API:**
 ```dart
-class LoadingSpinner extends StatefulWidget {
-  final bool isLoading;
-  const LoadingSpinner({super.key, required this.isLoading});
+// Lỗi: Khởi tạo AnimationController nhưng không override dispose()
+class LeakyTickerWidgetState extends State<LeakyTickerWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat();
+  }
+  // Bỏ sót phương thức dispose()
+  // Ticker tiếp tục đăng ký frame callback mỗi 16ms dù màn hình đã bị hủy
+}
+
+// Giải pháp: Luôn giải phóng controller trong phương thức dispose()
+@override
+void dispose() {
+  _controller.dispose();
+  super.dispose();
 }
 ```
 
-**Gợi ý:**
-- Cần 2 AnimationController: một cho rotation, một cho fade
-- Dùng `TickerProviderStateMixin` (không phải Single)
-- Override `didUpdateWidget` để detect `isLoading` thay đổi
-
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
-
 ---
 
-#### Q1 [Junior] — "Ticker là gì trong Flutter? Vai trò của nó trong animation?"
-
-**Trả lời chuẩn:**
-
-`Ticker` là object nhận **VSync callbacks** từ display hardware và drive animation forward. Mỗi khi màn hình chuẩn bị vẽ frame mới (60fps = mỗi ~16.67ms), `SchedulerBinding` phát VSync signal đến tất cả Tickers đang active.
-
-```
-Display Hardware → VSync signal (60fps)
-    ↓
-SchedulerBinding._handleBeginFrame()
-    ↓
-Mỗi Ticker nhận callback: ticker.onTick(Duration elapsed)
-    ↓
-AnimationController.notifyListeners()
-    ↓
-AnimatedBuilder.builder() được rebuild / FadeTransition repaint
-```
-
-**TickerProvider** (mixin `SingleTickerProviderStateMixin`) tạo Ticker được gắn với State lifecycle — khi widget offscreen (deactivated), Ticker tự pause để không waste CPU.
-
----
-
-#### Q2 [Junior] — "Sự khác biệt giữa `SingleTickerProviderStateMixin` và `TickerProviderStateMixin`?"
-
-**Trả lời chuẩn:**
-
-| | `SingleTickerProviderStateMixin` | `TickerProviderStateMixin` |
-|---|---|---|
-| **Số Ticker** | Đúng 1 | Nhiều (không giới hạn) |
-| **Dùng cho** | 1 `AnimationController` | Nhiều `AnimationController` |
-| **Debug assertion** | Throw nếu tạo > 1 controller | Không giới hạn |
-| **Performance** | Tốt hơn một chút (simpler) | Overhead nhỏ hơn |
+### 4.2 — Khởi tạo nhiều controller khi sử dụng SingleTickerProviderStateMixin
 
 ```dart
-// ✅ Single: tab animation (1 controller)
-class _TabState extends State<TabWidget>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  
-  @override void initState() {
+// Lỗi: Sử dụng SingleTickerProviderStateMixin nhưng khởi tạo 2 controller
+class MultiControllerErrorState extends State<MultiControllerWidget> 
+    with SingleTickerProviderStateMixin { // Lỗi
+  late AnimationController _c1;
+  late AnimationController _c2;
+
+  @override
+  void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: ...);
-    // Tạo 1 controller thứ 2 → assert fail trong debug mode
+    _c1 = AnimationController(vsync: this, duration: const Duration(seconds: 1));
+    // Kích hoạt assertion failure: createTicker() was called multiple times on SingleTickerProviderStateMixin
+    _c2 = AnimationController(vsync: this, duration: const Duration(seconds: 2));
   }
 }
 
-// ✅ Multi: staggered animations (nhiều controllers)
-class _StaggerState extends State<StaggerWidget>
+// Giải pháp: Chuyển sang sử dụng TickerProviderStateMixin
+class MultiControllerFixedState extends State<MultiControllerWidget> 
     with TickerProviderStateMixin {
-  late AnimationController _enter, _exit, _fade; // 3 controllers OK
+  // Thực thi hợp lệ
 }
 ```
 
 ---
 
-#### Q3 [Middle] — "Tại sao `AnimatedBuilder` tốt hơn `addListener + setState` cho animation?"
-
-**Trả lời chuẩn:**
-
-| | `addListener + setState` | `AnimatedBuilder` | Transition widgets |
-|---|---|---|---|
-| **Rebuild scope** | Toàn bộ `build()` của State | Chỉ `builder` callback | Không rebuild Widget — paint layer trực tiếp |
-| **Chi phí** | Cao | Trung bình | Thấp nhất |
-| **Cách dùng** | Đơn giản nhưng kém tối ưu | Cân bằng | Tốt nhất khi có thể |
+### 4.3 — Triệu gọi setState() trong addListener của AnimationController
 
 ```dart
-// ❌ addListener + setState — rebuild toàn bộ
-_controller.addListener(() => setState(() {}));
-// → mỗi frame: build() của widget được gọi lại
-// → toàn bộ Column/Stack bên trong rebuild
-
-// ✅ AnimatedBuilder — rebuild chỉ phần cần
-AnimatedBuilder(
-  animation: _controller,
-  child: const HeavyWidget(), // ← không rebuild theo animation
-  builder: (context, child) {
-    return Transform.scale(
-      scale: _animation.value,
-      child: child, // HeavyWidget được reuse, không rebuild
-    );
-  },
-)
-
-// ✅✅ FadeTransition — không rebuild Widget, chỉ repaint layer
-FadeTransition(
-  opacity: _animation, // listenable
-  child: const HeavyWidget(),
-)
-// Flutter dùng RenderObject.markNeedsPaint() thay vì rebuild Widget tree
-```
-
----
-
-#### Q4 [Senior] — "Ticker hoạt động thế nào? Nó connect với `SchedulerBinding` ra sao mỗi vsync frame?"
-
-**Trả lời chuẩn:**
-
-```dart
-// Ticker.start() — bắt đầu animation
-TickerFuture start() {
-  _future = TickerFuture._();
-  _startTime = null;
-  scheduleTick(); // đăng ký callback
-  return _future!;
-}
-
-// Ticker.scheduleTick()
-void scheduleTick() {
-  _animationId = SchedulerBinding.instance
-      .scheduleFrameCallback(_tick); // đăng ký 1 callback cho frame tiếp theo
-}
-
-// Ticker._tick(Duration timeStamp) — được gọi bởi SchedulerBinding mỗi frame
-void _tick(Duration timeStamp) {
-  _startTime ??= timeStamp;
-  _onTick(timeStamp - _startTime!); // gọi callback với elapsed time
-  if (shouldScheduleTick) scheduleTick(); // đăng ký lại cho frame tiếp theo
-}
-```
-
-**`SchedulerBinding.scheduleFrameCallback`** khác với `scheduleFrame()`:
-- `scheduleFrame()`: yêu cầu Flutter produce một frame (trigger vsync)
-- `scheduleFrameCallback()`: đăng ký callback sẽ được gọi trong frame tiếp theo
-
-**VSync off-screen:** Khi `State.deactivate()` được gọi, `TickerProviderStateMixin.deactivate()` gọi `ticker.muted = true` → Ticker không gọi callback nữa → không waste CPU khi widget không visible.
-
----
-
-#### Q5 [Middle] — "Tại sao phải `_controller.dispose()` trong `dispose()`? Điều gì xảy ra nếu không?"
-
-**Trả lời chuẩn:**
-
-`AnimationController.dispose()` làm 3 việc:
-1. `_ticker.dispose()` → Ticker hủy callback đã đăng ký với `SchedulerBinding`
-2. Xóa tất cả listeners (clear listener list)
-3. Đánh dấu controller là disposed (assert nếu dùng sau)
-
-**Nếu không dispose:**
-- Ticker vẫn nhận VSync callbacks mỗi frame → CPU waste
-- Ticker giữ reference đến State → **memory leak** (State không bị GC dù widget đã unmount)
-- Nếu animation đang chạy → tiếp tục chạy vô thời hạn background
-- Có thể gây "Ticker still active after State.dispose()" error trong debug mode
-
-```dart
-// Flutter warning khi không dispose ticker:
-// 'A Ticker was disposed with an active TickerFuture.'
-// 'The framework may not be able to GC this State.'
-
+// Lỗi kiến trúc: Bắt buộc toàn bộ subtree phải rebuild ở mỗi frame
 @override
-void dispose() {
-  _controller.dispose(); // ← luôn dispose trước super.dispose()
-  super.dispose();
+void initState() {
+  super.initState();
+  _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1));
+  _controller.addListener(() {
+    setState(() {}); // Kích hoạt rebuild 60-120 lần/giây, gây lãng phí chu kỳ CPU
+  });
+  _controller.forward();
 }
+
+// Giải pháp: Sử dụng AnimatedBuilder hoặc các Transition widgets chuyên dụng
 ```
 
 ---
 
-#### Q6 [Senior] — "`vsync: this` có nghĩa gì? TickerProvider làm gì khi widget offscreen?"
-
-**Trả lời chuẩn:**
-
-`vsync: this` truyền State (implement `TickerProvider`) vào `AnimationController`. Controller dùng TickerProvider để:
-1. Tạo `Ticker` khi cần (`createTicker(onTick)`)
-2. Liên kết Ticker với lifecycle của widget
-
-**Khi widget offscreen (tab ẩn, Navigator route bị covered):**
-
-```
-State.deactivate()
-  ↓
-TickerProviderStateMixin.deactivate()
-  ↓
-ticker.muted = true  // mute tất cả Tickers
-  ↓
-Ticker.muted setter:
-  if (muted) unscheduleTick() // hủy pending frame callback
-  → VSync callbacks không còn xảy ra → CPU = 0% cho animation
-```
-
-**Khi widget quay lại visible:**
-
-```
-State.activate()
-  ↓
-TickerProviderStateMixin.activate()
-  ↓
-ticker.muted = false // unmute
-  ↓
-Ticker.scheduleTick() // đăng ký lại → animation tiếp tục
-```
-
-Đây là lý do animation tự pause khi bạn switch tab và resume khi quay lại — hoàn toàn tự động qua TickerProvider mechanism.
+## Phần 5 — Câu Hỏi Kỹ Thuật & Phân Tích Thực Thi (Technical Analysis & Code Tracing)
 
 ---
 
-#### Q7 [Trace Code] — "Animation leak: xác định vấn đề và hậu quả"
+#### Q1 — "Vai trò kỹ thuật của tham số `vsync: this` trong constructor của `AnimationController` là gì?"
 
-```dart
-class AnimatedCard extends StatefulWidget {
-  const AnimatedCard({super.key});
-  @override
-  State<AnimatedCard> createState() => _AnimatedCardState();
-}
+**Phân tích kỹ thuật:**
+Tham số `vsync` nhận vào một đối tượng thực thi interface `TickerProvider`.
+Vai trò kỹ thuật:
+1. Kết nối `AnimationController` với hệ thống xung nhịp phần cứng (VSync) của màn hình thông qua `Ticker`, đảm bảo hoạt ảnh chỉ cập nhật giá trị khi tấm nền sẵn sàng hiển thị khung hình mới.
+2. Tự động liên kết hoạt ảnh với cơ chế `TickerMode` của widget tree. Khi widget bị che khuất hoặc chuyển vào background, `Ticker` tự động tạm dừng nhận frame callback, ngăn ngừa việc tiêu thụ năng lượng và chu kỳ CPU không cần thiết.
 
-class _AnimatedCardState extends State<AnimatedCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
+---
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
-    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+#### Q2 — "Cơ chế nào giúp các widget dạng `*Transition` đạt được hiệu năng Zero-Rebuild trên Element Tree?"
 
-    // Start repeating animation
-    _controller.repeat(reverse: true);
+**Phân tích kỹ thuật:**
+Các widget dạng `*Transition` (như `FadeTransition`, `SlideTransition`) kế thừa từ `SingleChildRenderObjectWidget`.
+1. Chúng quản lý trực tiếp một instance `RenderObject` chuyên dụng (ví dụ: `RenderAnimatedOpacity`, `RenderTransform`).
+2. Khi `Animation` phát tín hiệu thay đổi giá trị, listener nội bộ của `RenderObject` thực thi lệnh cập nhật trực tiếp lên các trường hình học hoặc thuộc tính ma trận của Layer (`TransformLayer`, `OpacityLayer`) và triệu gọi `markNeedsPaint()`.
+3. Quá trình này bỏ qua hoàn toàn giai đoạn thực thi phương thức `build()` và quá trình reconciliation trên Widget Tree / Element Tree, giúp giảm thiểu chi phí CPU và loại bỏ áp lực cấp phát đối tượng tạm thời lên Garbage Collector.
 
-    // Listener để update ngoài animation
-    _controller.addListener(() {
-      print('Value: ${_controller.value}');
-    });
-  }
+---
 
-  // ❌ Không có dispose() override!
+#### Q3 — "Cơ chế hoạt động của `TickerMode` khi một Route mới được push đè lên Navigator stack diễn ra như thế nào?"
 
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(opacity: _animation, child: const Card(child: Text('Hello')));
-  }
-}
-```
+**Phân tích kỹ thuật:**
+1. `TickerMode` là một `InheritedWidget` lưu trữ cờ boolean `enabled`.
+2. Khi `Navigator.push()` được thực thi để chèn một màn hình mới, Route bên dưới sẽ được framework chuyển trạng thái hiển thị nội bộ và tự động bọc bằng một `TickerMode` với `enabled = false`.
+3. Mọi `Ticker` nằm trong cây con bên dưới (thông qua `_WidgetTicker`) nhận được thông báo thay đổi ngữ cảnh và tự động chuyển cờ `muted = true`.
+4. `Ticker` ngay lập tức hủy bỏ frame callback đã lên lịch với `SchedulerBinding`. Hoạt ảnh ngừng tiêu thụ tài nguyên cho đến khi Route bên trên được pop và màn hình cũ hiển thị trở lại.
 
-**Vấn đề khi navigate away:**
+---
 
-1. `State.dispose()` được gọi (default implementation)
-2. `TickerProviderStateMixin.dispose()` chạy, nhưng **chỉ dispose Ticker nếu `_controller` đã dispose** — vì controller không bị dispose, Ticker vẫn active
-3. Flutter detect: **"A Ticker was disposed with an active TickerFuture"** → throw in debug mode
-4. `addListener` callback (`print`) vẫn chạy → vì listener không được remove
-5. State object không bị GC → **memory leak** (listener giữ reference đến State)
+#### Q4 — "Tại sao gọi `await controller.forward()` có thể ném ra ngoại lệ `TickerCanceled` và phương pháp xử lý chuẩn là gì?"
 
-**Fix:**
-```dart
-@override
-void dispose() {
-  _controller.dispose(); // dispose controller → dispose ticker, clear listeners
-  super.dispose();
-}
-```
+**Phân tích kỹ thuật:**
+Phương thức `controller.forward()` trả về một `TickerFuture`.
+1. `TickerFuture` được thiết kế để hoàn thành khi hoạt ảnh đi hết thời lượng tới đích.
+2. Tuy nhiên, nếu widget bị unmount khỏi cây (khiến `dispose()` được triệu gọi) hoặc nếu hoạt ảnh bị dừng đột ngột bởi lệnh `controller.stop()` / `controller.reset()`, `Ticker` sẽ chủ động hủy bỏ và hoàn thành `TickerFuture` bằng một lỗi `TickerCanceled`.
+3. Nếu sử dụng cú pháp `await controller.forward()` mà không bắt lỗi, Dart VM sẽ coi đây là một unhandled exception.
+4. Phương pháp xử lý chuẩn là sử dụng extension getter `.orCancel`:
+   ```dart
+   _controller.forward().orCancel.catchError((_) {});
+   ```
+   Thuộc tính này cung cấp một `Future` thay thế tự động xử lý và triệt tiêu lỗi `TickerCanceled`.
+
+---
+
+#### Q5 (Trace Code) — "Dự đoán số lần thực thi phương thức `build()` trong 1 giây của 3 đoạn mã sau (màn hình 60Hz)"
+
+Một hoạt ảnh có thời lượng 1 giây (`duration: const Duration(seconds: 1)`) chạy từ 0 đến 1 trên màn hình 60Hz:
+
+- **Trường hợp A:**
+  ```dart
+  _controller.addListener(() => setState(() {}));
+  // trong build():
+  return Text('${_controller.value}');
+  ```
+- **Trường hợp B:**
+  ```dart
+  return AnimatedBuilder(
+    animation: _controller,
+    builder: (context, child) => Text('${_controller.value}'),
+    child: const StaticContainer(),
+  );
+  ```
+- **Trường hợp C:**
+  ```dart
+  return FadeTransition(
+    opacity: _controller,
+    child: const StaticContainer(),
+  );
+  ```
+
+**Kết quả phân tích:**
+1. **Trường hợp A:** Hàm `build()` của toàn bộ State và cây con bên dưới chạy **~60 lần**.
+2. **Trường hợp B:**
+   - Hàm `build()` của State cha: Thực thi **1 lần**.
+   - Closure `builder` của `AnimatedBuilder`: Thực thi **~60 lần**.
+   - Widget con `StaticContainer`: Khởi tạo **1 lần** duy nhất và được tái sử dụng qua tham số `child`.
+3. **Trường hợp C:**
+   - Hàm `build()` của State cha: Thực thi **1 lần**.
+   - Widget con `StaticContainer`: Khởi tạo **1 lần**.
+   - Số lần Element Rebuild trong quá trình chạy hoạt ảnh: **0 lần** (chỉ có RenderObject repaint layer).

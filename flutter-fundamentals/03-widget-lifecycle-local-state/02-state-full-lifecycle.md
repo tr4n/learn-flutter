@@ -1,300 +1,399 @@
-# Bài 3.2 — Vòng Đời Đầy Đủ của StatefulWidget
+# Bài 3.2 — Vòng Đời Đầy Đủ của StatefulWidget (State Lifecycle)
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Máy Trạng Thái (Concepts & State Machine)
 
-### Tại sao bài này quan trọng?
+### 1.1 — Khái niệm vòng đời đối tượng State
 
-Lỗi memory leak phổ biến nhất trong Flutter:
+Trong Flutter Framework, đối tượng `State` đại diện cho logic và dữ liệu nội bộ có thể biến đổi của một `StatefulWidget`. Khác với `Widget` (chỉ là đối tượng cấu hình tạm thời, bị tạo mới và hủy bỏ liên tục), đối tượng `State` có **vòng đời bền vững** (persistent lifecycle) được gắn chặt với sự tồn tại của `StatefulElement` trên Element Tree.
 
-```dart
-class _MyState extends State<MyWidget> {
-  StreamSubscription? _sub;
-
-  @override
-  void initState() {
-    super.initState();
-    _sub = someStream.listen((_) { /* ... */ }); // Subscribe
-  }
-  // QUÊN dispose() → Stream vẫn chạy sau khi widget unmount!
-  // → Memory leak + setState after dispose
-}
-```
-
-Hiểu đầy đủ lifecycle giúp bạn:
-- Biết *đúng chỗ* để khởi tạo và giải phóng tài nguyên
-- Tránh "calling setState after dispose" error
-- Handle widget config change đúng cách qua `didUpdateWidget`
-- Dùng InheritedWidget correctly qua `didChangeDependencies`
-
-### Bạn sẽ hiểu được sau bài này:
-- 7 phase lifecycle theo thứ tự đúng
-- `super.initState()` phải là dòng đầu tiên, `super.dispose()` là dòng cuối
-- `didUpdateWidget` vs `didChangeDependencies` — khác nhau như thế nào
-- Implement stream subscription lifecycle hoàn chỉnh
+Quản lý vòng đời đối tượng `State` bao gồm 4 trách nhiệm kỹ thuật:
+1. **Khởi tạo tài nguyên ban đầu (Initialization):** Cấp phát bộ nhớ cho các controller (`AnimationController`, `TextEditingController`), đăng ký lắng nghe luồng dữ liệu (`StreamSubscription`), hoặc thiết lập bộ định thời (`Timer`).
+2. **Đồng bộ hóa cấu hình (Configuration Synchronization):** Cập nhật dữ liệu nội bộ khi widget cha truyền vào tham số cấu hình mới (`didUpdateWidget`).
+3. **Liên kết ngữ cảnh môi trường (Dependency Resolution):** Lắng nghe và phản ứng khi các `InheritedWidget` tổ tiên thay đổi dữ liệu (`didChangeDependencies`).
+4. **Giải phóng tài nguyên (Teardown & Cleanup):** Hủy bỏ hoàn toàn các controller, listeners, và kết nối mạng trước khi đối tượng bị thu hồi khỏi bộ nhớ (`dispose`).
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+### 1.2 — Máy trạng thái hữu hạn `_StateLifecycle` trong Flutter Framework
 
-### Full State Lifecycle
+Bên trong mã nguồn `packages/flutter/lib/src/widgets/framework.dart`, vòng đời của lớp `State` được điều khiển bởi một máy trạng thái hữu hạn thông qua enum nội bộ:
+
+```dart
+enum _StateLifecycle {
+  created,      // Trạng thái vừa khởi tạo qua constructor, chưa gắn kết với Element
+  initialized,  // Đang hoặc đã hoàn thành phương thức initState()
+  ready,        // Đã hoàn thành didChangeDependencies(), sẵn sàng nhận build() và setState()
+  defunct,      // Đã hoàn thành dispose(), ngưng hoạt động vĩnh viễn
+}
+```
+
+Framework sử dụng cờ `_debugLifecycleState` để bảo vệ các bất biến kiến trúc thông qua các câu lệnh assertion:
+- **Trước khi `initState()` hoàn tất:** `_debugLifecycleState` ở trạng thái `created`. Mọi thao tác truy cập `BuildContext` để đăng ký phụ thuộc đều bị chặn.
+- **Sau khi `dispose()` hoàn tất:** `_debugLifecycleState` chuyển sang `defunct`. Mọi lời gọi `setState()` đều vi phạm assertion `_debugLifecycleState != _StateLifecycle.defunct`.
+- **Thuộc tính `mounted`:** Được định nghĩa là một getter kiểm tra trạng thái gắn kết của Element:
+  ```dart
+  bool get mounted => _element != null;
+  ```
+  Khi khởi tạo, `_element` được gán tham chiếu; khi đối tượng bị unmount hoàn toàn, `_element` được gán về `null`.
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động & Mã Nguồn Đối Chiếu
+
+### 2.1 — Đặc tả kỹ thuật 7 giai đoạn vòng đời
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Mounted: Widget được insert vào tree
-
-    state Mounted {
-        [*] --> initState: StatefulElement mount State
-        initState --> didChangeDependencies: InheritedWidget setup
-        didChangeDependencies --> build: Render UI
-        build --> Alive: Trạng thái bình thường
-
-        state Alive {
-            [*] --> Ready
-            Ready --> setState: User interaction / Timer
-            setState --> build: mark dirty → rebuild
-            build --> Ready
-
-            Ready --> didUpdateWidget: Parent truyền config mới
-            didUpdateWidget --> build
-
-            Ready --> didChangeDependencies: InheritedWidget thay đổi
-            didChangeDependencies --> build
-        }
+    [*] --> created: widget.createState()
+    
+    created --> initialized: element.mount() → state.initState()
+    note right of initialized: Bắt buộc super.initState() đầu tiên.<br/>Chưa được đăng ký InheritedWidget.
+    
+    initialized --> ready: state.didChangeDependencies()
+    note right of ready: Đăng ký an toàn với InheritedWidget.<br/>Sẵn sàng cho build() và setState().
+    
+    state ready {
+        [*] --> Idle
+        Idle --> Rebuilding: setState() / didUpdateWidget() / InheritedWidget notify
+        Rebuilding --> Building: element.performRebuild()
+        Building --> Idle: state.build(context)
     }
-
-    Mounted --> Deactivated: Widget bị remove tạm thời
-    Deactivated --> Mounted: Widget được insert lại (GlobalKey reparent)
-    Deactivated --> Disposed: Element unmount
-
-    state Disposed {
-        dispose: Giải phóng tài nguyên
-        [*] --> dispose
-    }
-
-    Disposed --> [*]
-```
-
-### Thứ tự gọi super()
-
-```
-initState():
-  super.initState()  ← PHẢI là dòng ĐẦU TIÊN
-  _myInit()
-
-dispose():
-  _myCleanup()
-  super.dispose()    ← PHẢI là dòng CUỐI CÙNG
-
-Lý do: Flutter framework cần setup/teardown trước khi code của bạn chạy
+    
+    ready --> deactivated: element.deactivate()
+    note left of deactivated: Tạm thời tháo khỏi cây.<br/>Hỗ trợ GlobalKey Reparenting trong cùng frame.
+    
+    deactivated --> ready: element.activate() (Nếu được gắn lại vào cây)
+    deactivated --> defunct: element.unmount() → state.dispose()
+    note right of defunct: Bắt buộc super.dispose() cuối cùng.<br/>_element = null (mounted = false).
+    
+    defunct --> [*]: Thu hồi bởi Garbage Collector
 ```
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+#### Giai đoạn 1: `createState()`
+- **Thời điểm kích hoạt:** Được gọi từ constructor của `StatefulElement` khi widget lần đầu được đưa vào cây:
+  ```dart
+  StatefulElement(StatefulWidget widget) : _state = widget.createState(), super(widget);
+  ```
+- **Hợp đồng kỹ thuật:** Khởi tạo instance của lớp kế thừa `State<T>`. Không thực hiện bất kỳ logic truy cập `context` hay tính toán nào tại đây.
 
-### 3.1 — Template đầy đủ lifecycle
+---
+
+#### Giai đoạn 2: `initState()`
+- **Thời điểm kích hoạt:** Được framework gọi ngay sau khi `StatefulElement` mount vào Element Tree. Lúc này, con trỏ `_element` và `_widget` đã được liên kết với đối tượng `State`.
+- **Hợp đồng API:**
+  1. **Bắt buộc gọi `super.initState()` ở câu lệnh đầu tiên**:
+     ```dart
+     @override
+     void initState() {
+       super.initState();
+       // Logic khởi tạo tài nguyên
+     }
+     ```
+  2. **Không gọi các phương thức đăng ký phụ thuộc `BuildContext`**: Không sử dụng `Theme.of(context)` hoặc `MediaQuery.of(context)` tại đây. Mã nguồn framework chặn hành vi này bằng assertion:
+     > *"dependOnInheritedWidgetOfExactType was called before initState completed."*
+
+---
+
+#### Giai đoạn 3: `didChangeDependencies()`
+- **Thời điểm kích hoạt:**
+  1. Được gọi ngay sau `initState()` trong lần mount đầu tiên của widget.
+  2. Được gọi lại mỗi khi một `InheritedWidget` mà widget này đang lắng nghe thông báo thay đổi dữ liệu (`updateShouldNotify` trả về `true`).
+- **Hợp đồng kỹ thuật:** Là vị trí an toàn đầu tiên trong vòng đời để truy cập `BuildContext` và đăng ký phụ thuộc với các `InheritedElement` tổ tiên.
+
+---
+
+#### Giai đoạn 4: `build(BuildContext context)`
+- **Thời điểm kích hoạt:** Được gọi sau `didChangeDependencies()`, sau khi nhận tín hiệu từ `setState()`, hoặc sau khi `didUpdateWidget()` hoàn thành.
+- **Hợp đồng kỹ thuật:** Phải là một hàm thuần túy (Pure Function), không chứa side-effect:
+  - Không thay đổi biến trạng thái nội bộ.
+  - Không gọi `setState()` (vi phạm assertion `!_debugBuilding`).
+  - Không khởi tạo các kết nối mạng bất đồng bộ trực tiếp trong phương thức này.
+
+---
+
+#### Giai đoạn 5: `didUpdateWidget(covariant T oldWidget)`
+- **Thời điểm kích hoạt:** Được framework triệu gọi khi widget cha rebuild và cung cấp một instance `StatefulWidget` mới tại cùng vị trí, thỏa mãn điều kiện `Widget.canUpdate(oldWidget, newWidget) == true`.
+- **Hợp đồng kỹ thuật:**
+  - `widget` đã được framework cập nhật sang instance mới.
+  - Tham số `oldWidget` đại diện cho cấu hình trước đó.
+  - Sử dụng phương thức này để so sánh sự thay đổi giữa `oldWidget` và `widget`, từ đó tái thiết lập các controller hoặc luồng dữ liệu nếu cần thiết.
+
+---
+
+#### Giai đoạn 6: `deactivate()`
+- **Thời điểm kích hoạt:** Được gọi khi `StatefulElement` bị gỡ khỏi Element Tree.
+- **Cơ chế GlobalKey Reparenting:**
+  - Khi một widget bị gỡ khỏi vị trí hiện tại, nó được đưa vào danh sách `_deactivatedElements` của `BuildOwner`.
+  - Nếu trong cùng một khung hình render, widget đó được chèn vào một vị trí mới trên cây thông qua `GlobalKey`, framework sẽ gọi phương thức `activate()`. Đối tượng `State` tiếp tục hoạt động mà không bị hủy.
+  - Nếu đến cuối khung hình đối tượng không được gắn lại vào cây, framework sẽ chuyển sang giai đoạn `dispose()`.
+
+---
+
+#### Giai đoạn 7: `dispose()`
+- **Thời điểm kích hoạt:** Được gọi khi `StatefulElement` bị unmount vĩnh viễn khỏi Element Tree.
+- **Hợp đồng kỹ thuật:**
+  1. Giải phóng toàn bộ tài nguyên (Controller, StreamSubscription, Timer).
+  2. **Bắt buộc gọi `super.dispose()` ở câu lệnh cuối cùng**:
+     ```dart
+     @override
+     void dispose() {
+       _controller.dispose();
+       _subscription?.cancel();
+       super.dispose();
+     }
+     ```
+  3. Sau khi `super.dispose()` thực thi, cờ trạng thái chuyển sang `_StateLifecycle.defunct`, `_element` được gán về `null`, và `mounted` trả về `false`.
+
+---
+
+### 2.2 — Ma trận đặc tính kỹ thuật các phương thức vòng đời
+
+| Phương thức | Context hợp lệ? | Truy cập `widget`? | Đăng ký `InheritedWidget`? | Triệu gọi `setState()`? | Vị trí `super` |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `createState()` | Không | Không | Không | Không | Không áp dụng |
+| `initState()` | Hạn chế | Có | **Cấm** (Assertion failure) | Không cần thiết | **Đầu tiên** |
+| `didChangeDependencies()` | **Có** | Có | **Hợp lệ** | Hợp lệ | Đầu tiên |
+| `build()` | **Có** | Có | **Hợp lệ** | **Cấm** (Assertion failure) | Không áp dụng |
+| `didUpdateWidget()` | **Có** | Có | Không khuyến nghị | Hợp lệ (nhưng thừa) | Đầu tiên |
+| `deactivate()` | Hạn chế | Có | Không | Không | Cuối cùng |
+| `dispose()` | **Vô hiệu** | Có | Không | **Cấm** (Assertion failure) | **Cuối cùng** |
+
+---
+
+### 2.3 — Phân biệt Widget State Lifecycle và App Lifecycle
+
+Cần phân biệt rõ hai hệ thống vòng đời hoạt động ở hai tầng kiến trúc khác nhau:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ APP LIFECYCLE (Quản lý bởi Hệ điều hành qua Engine)    │
+│   Trạng thái: resumed ◄──► inactive ◄──► paused        │
+└───────────────────────────┬────────────────────────────┘
+                            │ Thông báo qua WidgetsBinding
+┌───────────────────────────▼────────────────────────────┐
+│ WIDGET STATE LIFECYCLE (Quản lý bởi Flutter Framework) │
+│   Trạng thái: initState ──► build ──► dispose          │
+└────────────────────────────────────────────────────────┘
+```
+
+- **Widget State Lifecycle:** Quản lý sự tồn tại của từng node giao diện trên Element Tree. Khi người dùng chuyển màn hình (Route), widget cũ bị unmount và phương thức `dispose()` được thực thi.
+- **App Lifecycle:** Quản lý trạng thái tiến trình của ứng dụng trên hệ điều hành di động (Android / iOS). Khi người dùng đưa ứng dụng xuống background hoặc khóa màn hình, ứng dụng chuyển sang trạng thái `AppLifecycleState.paused`.
+- **Ràng buộc tương tác:** Khi ứng dụng chuyển sang background, **Widget State không bị dispose**. Toàn bộ dữ liệu bộ nhớ vẫn được duy trì. Nếu không sử dụng `AppLifecycleListener` để tạm dừng các tiến trình chạy nền (như hoạt ảnh, bộ định thời), ứng dụng sẽ tiếp tục tiêu thụ CPU của thiết bị.
+
+---
+
+## Phần 3 — Mẫu Triển Khai Chuẩn (Standard Implementation Patterns)
+
+### 3.1 — Mẫu quản lý tài nguyên toàn diện kết hợp AppLifecycleListener
 
 ```dart
-class FullLifecycleWidget extends StatefulWidget {
-  final String userId;
-  final bool isActive;
+import 'dart:async';
+import 'package:flutter/material.dart';
 
-  const FullLifecycleWidget({
+/// Triển khai chuẩn cho Widget quản lý tài nguyên phức tạp:
+/// - Quản lý TextEditingController, Timer, StreamSubscription.
+/// - Đồng bộ tham số qua didUpdateWidget.
+/// - Lắng nghe vòng đời ứng dụng qua AppLifecycleListener.
+class ResourceManagementWidget extends StatefulWidget {
+  final String streamId;
+  final bool isTrackingEnabled;
+
+  const ResourceManagementWidget({
     super.key,
-    required this.userId,
-    required this.isActive,
+    required this.streamId,
+    required this.isTrackingEnabled,
   });
 
   @override
-  State<FullLifecycleWidget> createState() => _FullLifecycleWidgetState();
+  State<ResourceManagementWidget> createState() => _ResourceManagementWidgetState();
 }
 
-class _FullLifecycleWidgetState extends State<FullLifecycleWidget> {
-  // Tài nguyên cần cleanup
-  StreamSubscription<UserData>? _userSub;
-  Timer? _refreshTimer;
-  late final TextEditingController _searchController;
+class _ResourceManagementWidgetState extends State<ResourceManagementWidget> {
+  late final TextEditingController _textController;
+  late final AppLifecycleListener _lifecycleListener;
+  StreamSubscription<int>? _dataSubscription;
+  Timer? _heartbeatTimer;
+  int _latestValue = 0;
 
-  // State data
-  UserData? _userData;
-  String? _errorMessage;
-
-  // ─── PHASE 1: initState ───────────────────────────────────────────────────
   @override
   void initState() {
-    super.initState(); // BẮT BUỘC là dòng đầu tiên
+    super.initState(); // Hợp đồng: Gọi đầu tiên
 
-    // ✅ Setup tài nguyên không cần context/InheritedWidget
-    _searchController = TextEditingController();
+    _textController = TextEditingController();
 
-    // ✅ Subscribe stream (với widget.userId có sẵn)
-    _subscribeToUser(widget.userId);
+    // Đăng ký theo dõi trạng thái ứng dụng trên OS
+    _lifecycleListener = AppLifecycleListener(
+      onPause: _handleAppPaused,
+      onResume: _handleAppResumed,
+    );
 
-    // ✅ Timer
-    if (widget.isActive) _startRefreshTimer();
+    _initializeStream(widget.streamId);
 
-    // ❌ KHÔNG dùng Theme.of(context), Navigator.of(context)
-    // ❌ KHÔNG gọi setState
-    debugPrint('initState: userId=${widget.userId}');
+    if (widget.isTrackingEnabled) {
+      _startHeartbeat();
+    }
   }
 
-  // ─── PHASE 2: didChangeDependencies ──────────────────────────────────────
   @override
   void didChangeDependencies() {
-    super.didChangeDependencies(); // Gọi trước
-
-    // ✅ Dùng context để lấy InheritedWidget
-    // Được gọi sau initState VÀ mỗi khi dependency (InheritedWidget) thay đổi
-    final locale = Localizations.localeOf(context);
-    debugPrint('didChangeDependencies: locale=$locale');
-
-    // ✅ Có thể gọi setState hoặc update state ở đây
+    super.didChangeDependencies();
+    // Đọc thông tin môi trường nếu cần thiết (Theme, Locale)
   }
 
-  // ─── PHASE 3: build ───────────────────────────────────────────────────────
   @override
-  Widget build(BuildContext context) {
-    // Build phải là pure function của state + context
-    // Không có side effects trong build!
-    return switch ((_userData, _errorMessage)) {
-      (final data?, null) => _buildContent(data),
-      (null, final err?) => _buildError(err),
-      _ => const CircularProgressIndicator(),
-    };
-  }
+  void didUpdateWidget(covariant ResourceManagementWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
 
-  Widget _buildContent(UserData data) => Column(
-    children: [Text(data.name), Text(data.email)],
-  );
-
-  Widget _buildError(String error) => Text('Error: $error',
-      style: const TextStyle(color: Colors.red));
-
-  // ─── PHASE 4: didUpdateWidget ─────────────────────────────────────────────
-  @override
-  void didUpdateWidget(FullLifecycleWidget oldWidget) {
-    super.didUpdateWidget(oldWidget); // Gọi trước
-
-    // Được gọi khi parent rebuild truyền config mới
-    // oldWidget = config cũ, widget = config mới (đã update)
-
-    if (oldWidget.userId != widget.userId) {
-      // userId thay đổi → cần unsubscribe cũ, subscribe mới
-      _userSub?.cancel();
-      _subscribeToUser(widget.userId);
+    // Đồng bộ khi streamId thay đổi
+    if (oldWidget.streamId != widget.streamId) {
+      _dataSubscription?.cancel();
+      _initializeStream(widget.streamId);
     }
 
-    if (oldWidget.isActive != widget.isActive) {
-      if (widget.isActive) {
-        _startRefreshTimer();
+    // Đồng bộ khi trạng thái tracking thay đổi
+    if (oldWidget.isTrackingEnabled != widget.isTrackingEnabled) {
+      if (widget.isTrackingEnabled) {
+        _startHeartbeat();
       } else {
-        _refreshTimer?.cancel();
-        _refreshTimer = null;
+        _stopHeartbeat();
       }
     }
   }
 
-  // ─── PHASE 5: deactivate ─────────────────────────────────────────────────
   @override
-  void deactivate() {
-    // Được gọi khi widget bị remove khỏi tree TẠMTHỜI
-    // (ví dụ: GlobalKey reparenting)
-    // Ít gặp — không cần override thường xuyên
-    debugPrint('deactivate');
-    super.deactivate();
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(controller: _textController),
+        Text('Giá trị nhận được: $_latestValue'),
+      ],
+    );
   }
 
-  // ─── PHASE 6: dispose ─────────────────────────────────────────────────────
   @override
   void dispose() {
-    // Giải phóng tài nguyên TRƯỚC super.dispose()
-    _userSub?.cancel();
-    _refreshTimer?.cancel();
-    _searchController.dispose();
-    // Không gọi setState sau đây!
+    // Giải phóng tài nguyên trước khi gọi super.dispose()
+    _stopHeartbeat();
+    _dataSubscription?.cancel();
+    _textController.dispose();
+    _lifecycleListener.dispose();
 
-    super.dispose(); // BẮT BUỘC là dòng cuối cùng
-    debugPrint('dispose: widget đã bị unmount');
+    super.dispose(); // Hợp đồng: Gọi cuối cùng
   }
 
-  // ─── Helper methods ───────────────────────────────────────────────────────
-  void _subscribeToUser(String userId) {
-    _userSub = UserRepository().watchUser(userId).listen(
-      (data) {
-        if (!mounted) return; // Guard sau async
-        setState(() => _userData = data);
-      },
-      onError: (error) {
-        if (!mounted) return;
-        setState(() => _errorMessage = error.toString());
-      },
-    );
+  void _initializeStream(String id) {
+    _dataSubscription = Stream.periodic(const Duration(seconds: 1), (count) => count).listen((data) {
+      if (!mounted) return;
+      setState(() {
+        _latestValue = data;
+      });
+    });
   }
 
-  void _startRefreshTimer() {
-    _refreshTimer = Timer.periodic(
-      const Duration(minutes: 5),
-      (_) {
-        if (!mounted) return;
-        // Refresh logic
-      },
-    );
+  void _startHeartbeat() {
+    _stopHeartbeat();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      // Thực thi tín hiệu đồng bộ định kỳ
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
+  void _handleAppPaused() {
+    _stopHeartbeat();
+  }
+
+  void _handleAppResumed() {
+    if (widget.isTrackingEnabled) {
+      _startHeartbeat();
+    }
   }
 }
 ```
 
-### 3.2 — Stream Subscription Lifecycle đúng cách
+---
+
+### 3.2 — Mẫu bảo tồn trạng thái qua GlobalKey Reparenting
 
 ```dart
-// Template chuẩn cho bất kỳ widget nào cần subscribe stream
-class StreamConsumerWidget extends StatefulWidget {
-  final Stream<List<Message>> messageStream;
-  const StreamConsumerWidget({super.key, required this.messageStream});
-  @override State<StreamConsumerWidget> createState() => _StreamConsumerState();
+import 'package:flutter/material.dart';
+
+/// Minh họa cơ chế GlobalKey Reparenting:
+/// Di chuyển Widget giữa hai nhánh cây khác nhau trong cùng một khung hình
+/// mà không làm mất trạng thái State hiện tại.
+class GlobalKeyReparentingExample extends StatefulWidget {
+  const GlobalKeyReparentingExample({super.key});
+
+  @override
+  State<GlobalKeyReparentingExample> createState() => _GlobalKeyReparentingExampleState();
 }
 
-class _StreamConsumerState extends State<StreamConsumerWidget> {
-  StreamSubscription<List<Message>>? _subscription;
-  List<Message> _messages = [];
+class _GlobalKeyReparentingExampleState extends State<GlobalKeyReparentingExample> {
+  final GlobalKey<_PersistentCounterState> _counterKey = GlobalKey<_PersistentCounterState>();
+  bool _renderInFirstContainer = true;
 
   @override
-  void initState() {
-    super.initState();
-    _subscribe(widget.messageStream);
-  }
-
-  @override
-  void didUpdateWidget(StreamConsumerWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Stream reference thay đổi → unsubscribe cũ, subscribe mới
-    if (oldWidget.messageStream != widget.messageStream) {
-      _subscription?.cancel();
-      _subscribe(widget.messageStream);
-    }
-  }
-
-  void _subscribe(Stream<List<Message>> stream) {
-    _subscription = stream.listen(
-      (messages) {
-        if (!mounted) return;
-        setState(() => _messages = messages);
-      },
-      onError: (e) => debugPrint('Stream error: $e'),
-      cancelOnError: false, // Không cancel khi có error (reconnect tự động)
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ElevatedButton(
+          onPressed: () => setState(() => _renderInFirstContainer = !_renderInFirstContainer),
+          child: const Text('Chuyển đổi vị trí container'),
+        ),
+        Container(
+          height: 80,
+          color: Colors.grey.shade200,
+          child: _renderInFirstContainer ? PersistentCounter(key: _counterKey) : null,
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 80,
+          color: Colors.grey.shade300,
+          child: !_renderInFirstContainer ? PersistentCounter(key: _counterKey) : null,
+        ),
+      ],
     );
   }
+}
+
+class PersistentCounter extends StatefulWidget {
+  const PersistentCounter({super.key});
 
   @override
-  void dispose() {
-    _subscription?.cancel(); // QUAN TRỌNG: cancel trước super.dispose()
-    super.dispose();
+  State<PersistentCounter> createState() => _PersistentCounterState();
+}
+
+class _PersistentCounterState extends State<PersistentCounter> {
+  int _counter = 0;
+
+  @override
+  void deactivate() {
+    // Kích hoạt khi phần tử tạm thời bị tháo khỏi vị trí cũ
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    // Kích hoạt khi phần tử được gắn vào vị trí mới trong cùng frame
+    super.activate();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: _messages.length,
-      itemBuilder: (_, i) => MessageBubble(message: _messages[i]),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text('Bộ đếm: $_counter'),
+        IconButton(
+          icon: const Icon(Icons.add),
+          onPressed: () => setState(() => _counter++),
+        ),
+      ],
     );
   }
 }
@@ -302,333 +401,198 @@ class _StreamConsumerState extends State<StreamConsumerWidget> {
 
 ---
 
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+## Phần 4 — Các Bẫy Kỹ Thuật & Giải Pháp (Common Pitfalls & Mitigations)
 
-### ❌ Anti-pattern 1: `super.initState()` không phải dòng đầu
-
-```dart
-// ❌ Sai: Setup trước super() → framework chưa sẵn sàng
-@override
-void initState() {
-  _controller = AnimationController(vsync: this); // vsync dùng TickerProvider
-  super.initState(); // ❌ TickerProvider chưa được setup!
-}
-
-// ✅ Đúng
-@override
-void initState() {
-  super.initState(); // Framework setup trước
-  _controller = AnimationController(vsync: this); // Sau đó mới dùng
-}
-```
-
-### ❌ Anti-pattern 2: `super.dispose()` không phải dòng cuối
+### 4.1 — Triệu gọi InheritedWidget trong initState
 
 ```dart
-// ❌ Sai: cleanup sau super() → framework đã teardown
-@override
-void dispose() {
-  super.dispose();         // Framework teardown xong
-  _controller.dispose();  // ❌ Framework state không còn valid
-}
-
-// ✅ Đúng
-@override
-void dispose() {
-  _controller.dispose();  // Cleanup trước
-  _subscription?.cancel();
-  super.dispose();         // Framework teardown cuối
-}
-```
-
-### ❌ Anti-pattern 3: setState sau dispose
-
-```dart
-// ❌ Sai: Callback từ async operation có thể chạy sau dispose
-class _BadState extends State<MyWidget> {
-  @override
-  void initState() {
-    super.initState();
-    fetchData().then((data) {
-      // fetchData mất 5 giây. Trong thời gian đó widget có thể dispose!
-      setState(() => _data = data); // 💥 setState after dispose
-    });
-  }
-}
-
-// ✅ Đúng: Check mounted trước setState
-Future<void> _load() async {
-  final data = await fetchData();
-  if (!mounted) return; // Guard!
-  setState(() => _data = data);
-}
-```
-
-### ❌ Anti-pattern 4: Quên cleanup trong dispose
-
-```dart
-// ❌ Sai: Không cancel subscription
+// Lỗi: Đăng ký lắng nghe InheritedWidget khi quá trình mount chưa hoàn tất
 @override
 void initState() {
   super.initState();
-  someStream.listen((data) => setState(() => _data = data));
-  // Không lưu subscription → không cancel được!
+  // Kích hoạt FlutterError: dependOnInheritedWidgetOfExactType was called before initState completed.
+  final theme = Theme.of(context);
 }
 
-// ✅ Đúng
-StreamSubscription? _sub;
+// Giải pháp: Di chuyển logic phụ thuộc context vào didChangeDependencies()
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  final theme = Theme.of(context); // Thực thi hợp lệ
+}
+```
 
+---
+
+### 4.2 — Đảo ngược thứ tự gọi phương thức lớp cha (super)
+
+```dart
+// Lỗi: Đảo ngược thứ tự gọi phương thức lớp cha
 @override
 void initState() {
-  super.initState();
-  _sub = someStream.listen((data) {
-    if (!mounted) return;
-    setState(() => _data = data);
+  _initializeResources();
+  super.initState(); // Sai: Bắt buộc phải là câu lệnh đầu tiên
+}
+
+@override
+void dispose() {
+  super.dispose();   // Sai: Khi lớp cha chạy xong, _element = null và trạng thái là defunct
+  _controller.dispose(); // Nguy cơ lỗi khi truy cập các thuộc tính nội bộ
+}
+
+// Giải pháp: Tuân thủ quy tắc First-In, Last-Out
+@override
+void initState() {
+  super.initState(); // Lớp cha thiết lập trước
+  _initializeResources();
+}
+
+@override
+void dispose() {
+  _teardownResources(); // Dọn dẹp tài nguyên trước
+  super.dispose();      // Lớp cha đóng vòng đời sau cùng
+}
+```
+
+---
+
+### 4.3 — Triệu gọi setState sau khi đối tượng đã bị hủy (mounted == false)
+
+```dart
+// Lỗi: Gọi setState sau async gap mà không kiểm tra cờ mounted
+Future<void> _fetchData() async {
+  final result = await httpClient.get('api/data'); // Quá trình bất đồng bộ tạo async gap
+  // Nếu người dùng đóng màn hình trong thời gian chờ, đối tượng State đã bị dispose
+  setState(() {
+    _data = result; // Kích hoạt assertion failure: setState() called after dispose()
   });
 }
 
-@override
-void dispose() {
-  _sub?.cancel();
-  super.dispose();
+// Giải pháp: Kiểm tra thuộc tính mounted trước khi thực thi
+Future<void> _fetchData() async {
+  final result = await httpClient.get('api/data');
+  if (!mounted) return; // Guard kiểm tra trạng thái gắn kết của Element
+  setState(() {
+    _data = result;
+  });
 }
 ```
 
 ---
 
-## Phần 5 — Bài Tập Củng Cố Tư Duy
+## Phần 5 — Câu Hỏi Kỹ Thuật & Phân Tích Thực Thi (Technical Analysis & Code Tracing)
 
-### Challenge: Implement Stream Subscription Lifecycle Đúng Cách
+---
 
-**Yêu cầu:** Xây dựng `ChatScreen` với:
-1. Subscribe Firebase Firestore stream của room messages
-2. Khi `roomId` thay đổi (user chọn room khác) → unsubscribe cũ, subscribe mới
-3. Hiển thị loading trong lúc chờ data đầu tiên
-4. Handle error gracefully
-5. Cancel subscription khi navigate away
+#### Q1 — "Trình tự các phương thức được framework triệu gọi khi một StatefulWidget lần đầu tiên mount vào cây?"
 
-**Template bắt đầu:**
+**Phân tích kỹ thuật:**
+Thứ tự thực thi tuần tự gồm 5 bước:
+1. `StatefulWidget.createState()`: Framework khởi tạo instance `State` tương ứng trên Heap.
+2. Thiết lập con trỏ liên kết: Framework gán `state._element = this` và `state._widget = widget`.
+3. `State.initState()`: Khởi tạo các tài nguyên nội bộ độc lập với context.
+4. `State.didChangeDependencies()`: Đăng ký liên kết với các `InheritedElement` tổ tiên.
+5. `State.build(BuildContext context)`: Trả về cây Widget con để phục vụ cho các bước Layout và Paint tiếp theo.
+
+---
+
+#### Q2 — "Tại sao framework chặn việc triệu gọi `dependOnInheritedWidgetOfExactType` trong phương thức `initState()`?"
+
+**Phân tích kỹ thuật:**
+Phương thức `dependOnInheritedWidgetOfExactType` thực hiện hai thao tác:
+1. Tìm kiếm `InheritedElement` phù hợp gần nhất trong danh sách tổ tiên.
+2. Đưa `Element` hiện tại vào bảng `_dependents` của `InheritedElement` đó để tự động kích hoạt rebuild khi dữ liệu thay đổi.
+
+Trong thời gian `initState()` đang chạy:
+- Đối tượng `StatefulElement` chưa hoàn thành việc mount vào cây. Đồ thị tổ tiên chưa được xác lập đầy đủ.
+- Cờ trạng thái `_debugLifecycleState` đang mang giá trị `_StateLifecycle.created`.
+- Nếu cho phép đăng ký phụ thuộc tại thời điểm này, cấu trúc cây phụ thuộc có thể rơi vào trạng thái không nhất quán, dẫn đến lỗi rò rỉ hoặc rebuild sai đối tượng. Do đó, framework chặn bằng assertion và chỉ cho phép thao tác này diễn ra kể từ `didChangeDependencies()`.
+
+---
+
+#### Q3 — "Cơ chế hoạt động của danh sách `_deactivatedElements` và quy trình GlobalKey Reparenting diễn ra như thế nào?"
+
+**Phân tích kỹ thuật:**
+1. Khi một widget bị xóa khỏi vị trí cũ trên cây Widget, `BuildOwner` không gọi `unmount()` ngay lập tức. Thay vào đó, nó đưa `Element` vào danh sách nội bộ `_deactivatedElements` và gọi phương thức `deactivate()`.
+2. `GlobalKey` duy trì một bảng ánh xạ tĩnh toàn cục liên kết giữa key và instance `Element`.
+3. Khi duyệt qua các node mới trong cùng một khung hình render, nếu framework phát hiện một widget mới có cùng `GlobalKey`, nó sẽ trích xuất `Element` cũ tương ứng ra khỏi `_deactivatedElements`.
+4. Framework gọi phương thức `element.activate()`, sau đó gọi `state.activate()`. Quá trình unmount bị hủy bỏ, đối tượng `State` được duy trì nguyên vẹn và tiếp tục hoạt động tại vị trí mới.
+5. Nếu kết thúc khung hình mà `Element` trong `_deactivatedElements` không được gắn vào vị trí mới nào, framework mới chính thức gọi `element.unmount()`, dẫn đến việc thực thi `state.dispose()`.
+
+---
+
+#### Q4 — "Việc gọi `setState()` bên trong phương thức `didUpdateWidget()` có vi phạm hợp đồng API không?"
+
+**Phân tích kỹ thuật:**
+1. **Tính hợp lệ:** Việc gọi `setState()` trong `didUpdateWidget()` hoàn toàn hợp lệ và không vi phạm assertion nào của framework vì trạng thái lúc này là `_StateLifecycle.ready`.
+2. **Tính cần thiết:** Việc bọc các câu lệnh thay đổi dữ liệu trong `setState(() { ... })` bên trong `didUpdateWidget()` là **không cần thiết**. Trong mã nguồn `StatefulElement.update()`, ngay sau khi dòng lệnh `state.didUpdateWidget(oldWidget)` kết thúc, framework luôn gọi `rebuild(force: true)`. Do đó, mọi thay đổi dữ liệu được gán trực tiếp vào các biến thành viên trong `didUpdateWidget()` đều chắc chắn được phản ánh trong lần thực thi `build()` diễn ra ngay sau đó.
+
+---
+
+#### Q5 (Trace Code) — "Dự đoán thứ tự in log của chương trình sau khi thay đổi vị trí widget"
+
+Xem xét đoạn mã sau:
+
 ```dart
-class ChatScreen extends StatefulWidget {
-  final String roomId; // Có thể thay đổi
-  const ChatScreen({super.key, required this.roomId});
-  @override State<ChatScreen> createState() => _ChatScreenState();
+class ReparentingTraceApp extends StatefulWidget {
+  const ReparentingTraceApp({super.key});
+  @override State<ReparentingTraceApp> createState() => _ReparentingTraceAppState();
 }
-```
 
-**Gợi ý:** Dùng `ConnectionState` của `AsyncSnapshot` để track loading state, hoặc quản lý state riêng với field `_isLoading`.
+class _ReparentingTraceAppState extends State<ReparentingTraceApp> {
+  final GlobalKey _sharedKey = GlobalKey();
+  bool _toggle = false;
 
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
-
----
-
-#### Q1 [Junior] — "Thứ tự lifecycle methods khi widget mount lần đầu là gì?"
-
-**Trả lời chuẩn:**
-
-```
-StatefulWidget.createState()          // tạo State object
-    ↓
-State.initState()                     // setup: controller, timer, subscription
-    ↓
-State.didChangeDependencies()         // lần đầu: safe để dùng context.watch()
-    ↓
-State.build(context)                  // tạo UI lần đầu
-    ↓
-[User interactions / parent rebuilds]
-    ↓
-State.didUpdateWidget(oldWidget)?     // nếu parent rebuild với config mới
-State.didChangeDependencies()?        // nếu InheritedWidget thay đổi
-State.build(context)                  // rebuild UI
-    ↓
-State.deactivate()                    // widget rời khỏi tree (navigate away)
-    ↓
-State.dispose()                       // cleanup: dispose controller, cancel sub
-```
-
-**Nhớ:** `initState` không thể dùng `context.watch()` / `dependOn`. `didChangeDependencies` là nơi an toàn đầu tiên để làm điều đó.
-
----
-
-#### Q2 [Junior] — "Sự khác biệt giữa `didUpdateWidget` và `didChangeDependencies`?"
-
-**Trả lời chuẩn:**
-
-| | `didUpdateWidget(T oldWidget)` | `didChangeDependencies()` |
-|---|---|---|
-| **Trigger** | Parent rebuild tạo Widget mới (cùng type+key) | InheritedWidget mà widget phụ thuộc thay đổi |
-| **Có old data** | Có — `oldWidget` là Widget trước đó | Không — cần so sánh tự thủ công |
-| **Use case** | Sync internal resource khi config thay đổi | Re-fetch data khi locale/theme thay đổi |
-| **Gọi sau** | Sau `element.update()` trước `build()` | Sau `initState()` (lần đầu) hoặc sau dependency change |
-
-```dart
-@override
-void didUpdateWidget(VideoPlayer oldWidget) {
-  super.didUpdateWidget(oldWidget);
-  if (oldWidget.url != widget.url) { // config thay đổi
-    _controller.load(widget.url);
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (!_toggle)
+          LogTrackerWidget(key: _sharedKey, name: 'Target')
+        else
+          const SizedBox.shrink(),
+        if (_toggle)
+          LogTrackerWidget(key: _sharedKey, name: 'Target')
+        else
+          const SizedBox.shrink(),
+        ElevatedButton(
+          onPressed: () => setState(() => _toggle = !_toggle),
+          child: const Text('Toggle'),
+        ),
+      ],
+    );
   }
 }
 
-@override
-void didChangeDependencies() {
-  super.didChangeDependencies();
-  // InheritedWidget thay đổi — an toàn để dùng context
-  _locale = Localizations.localeOf(context);
+class LogTrackerWidget extends StatefulWidget {
+  final String name;
+  const LogTrackerWidget({super.key, required this.name});
+
+  @override
+  State<LogTrackerWidget> createState() => _LogTrackerWidgetState();
+}
+
+class _LogTrackerWidgetState extends State<LogTrackerWidget> {
+  @override void initState() { super.initState(); print('1. initState'); }
+  @override void didChangeDependencies() { super.didChangeDependencies(); print('2. didChangeDependencies'); }
+  @override void build(BuildContext context) { print('3. build'); return Text(widget.name); }
+  @override void deactivate() { print('4. deactivate'); super.deactivate(); }
+  @override void activate() { super.activate(); print('5. activate'); }
+  @override void dispose() { print('6. dispose'); super.dispose(); }
 }
 ```
 
----
-
-#### Q3 [Middle] — "Tại sao `dispose()` cần cleanup TRƯỚC `super.dispose()`? Điều gì xảy ra nếu làm ngược?"
-
-**Trả lời chuẩn:**
-
-`super.dispose()` (tức là `State.dispose()` của Flutter framework) thực hiện:
-- Teardown `TickerProvider` (nếu dùng `SingleTickerProviderStateMixin`)
-- Clear bindings và mounted flag (`_debugLifecycleState = _StateLifecycle.defunct`)
-- Sau đó `mounted` = false
-
-Nếu cleanup **sau** `super.dispose()`:
-```dart
-// ❌ Sai — crash!
-@override
-void dispose() {
-  super.dispose(); // ← mounted = false, TickerProvider torn down
-  _controller.dispose(); // ← AnimationController cố stop Ticker đã torn down → assertion error
-  _subscription.cancel(); // ← ok nhưng conceptually wrong
-}
-
-// ✅ Đúng — cleanup resources trước khi framework teardown
-@override
-void dispose() {
-  _controller.dispose();    // dừng animation (Ticker vẫn còn hoạt động)
-  _subscription.cancel();   // hủy stream
-  _focusNode.dispose();     // release focus
-  super.dispose();          // ← bây giờ mới teardown framework resources
-}
+**Thứ tự in log khi khởi chạy lần đầu:**
+```
+1. initState
+2. didChangeDependencies
+3. build
 ```
 
-**Quy tắc:** Bất cứ thứ gì bạn tạo trong `initState()` → dispose trong `dispose()` TRƯỚC `super.dispose()`.
-
----
-
-#### Q4 [Senior] — "`didChangeDependencies()` được gọi khi nào chính xác? Tại sao nó chạy sau `initState()` lần đầu?"
-
-**Trả lời chuẩn:**
-
-`didChangeDependencies()` được gọi trong 2 trường hợp:
-
-**1. Lần đầu sau `initState()`:** Đây là thiết kế của framework — `StatefulElement.mount()` gọi `initState()`, sau đó `firstBuild()`, sau đó `performRebuild()`, trong đó `performRebuild()` gọi `_updateInheritance()` → `didChangeDependencies()`. Mục đích: đảm bảo code phụ thuộc InheritedWidget có thể chạy ngay lần đầu build.
-
-**2. Khi InheritedWidget thay đổi:** Khi `InheritedWidget.updateShouldNotify()` = true → Flutter mark tất cả dependents dirty → `Element.didChangeDependencies()` → `State.didChangeDependencies()` được gọi trước `build()` tiếp theo.
-
-```dart
-@override
-void didChangeDependencies() {
-  super.didChangeDependencies();
-  // Chạy: (a) ngay sau initState, (b) khi Locale/Theme/Provider data thay đổi
-  final locale = Localizations.localeOf(context); // an toàn ở đây
-  if (_locale != locale) {
-    _locale = locale;
-    _reloadLocalizedContent(); // re-fetch khi ngôn ngữ thay đổi
-  }
-}
+**Thứ tự in log khi người dùng kích hoạt nút nhấn `Toggle`:**
 ```
-
-**Tối ưu:** Nếu logic expensive, hãy compare trước khi execute (như ví dụ trên) vì `didChangeDependencies` có thể được gọi nhiều lần.
-
----
-
-#### Q5 [Middle] — "Hot reload ảnh hưởng đến lifecycle thế nào? `reassemble()` là gì?"
-
-**Trả lời chuẩn:**
-
-**Hot reload** (Ctrl+S / `r` trong flutter run) chỉ inject code mới vào Dart VM và rebuild widget tree — **không** restart app, không clear State.
-
-Lifecycle khi hot reload:
+4. deactivate
+5. activate
+3. build
 ```
-reassemble()    // được gọi trên mọi State trong tree
-    ↓
-build()         // rebuild UI với code mới
-```
-
-`State.reassemble()` được design để override cho dev-time debugging:
-
-```dart
-@override
-void reassemble() {
-  super.reassemble();
-  // Reset nội bộ giúp hot reload hoạt động tốt hơn
-  // Ví dụ: image cache, custom data
-  _cachedImage = null; // clear cache để load lại với code mới
-}
-```
-
-**Hot restart** (`R` viết hoa) thì khác — restart hoàn toàn app, mọi State bị mất, lifecycle bắt đầu lại từ `main()`.
-
-**Điểm quan trọng cần lưu ý khi phát triển & debug:** Nếu hot reload không cập nhật đúng (ví dụ: `initState` có logic quan trọng), bạn cần hot restart. `reassemble()` là hook để xử lý edge case này.
-
----
-
-#### Q6 [Senior] — "`deactivate()` vs `dispose()` — khác biệt và khi nào mỗi cái được gọi?"
-
-**Trả lời chuẩn:**
-
-| | `deactivate()` | `dispose()` |
-|---|---|---|
-| **Khi nào** | Widget rời khỏi tree (tạm thời hoặc vĩnh viễn) | Widget bị permanently remove khỏi tree |
-| **mounted** | Vẫn = true tại thời điểm gọi | Sau `super.dispose()` → mounted = false |
-| **Có thể remount** | Có (GlobalKey reparenting, đang trong deactivated pool) | Không |
-| **Thường override** | Hiếm | Thường — cleanup resources |
-
-```
-Navigate push new route:
-  Old screen: deactivate() (nhưng KHÔNG dispose — vẫn trong stack)
-
-Navigate pop:
-  Old screen: deactivate() → dispose() (vĩnh viễn xóa)
-  Previous screen: (được activate lại nếu đang trong deactivated state)
-```
-
-**GlobalKey reparenting:** Flutter có thể move Element từ tree position này sang position khác bằng `deactivate()` + remount. Đây là lý do GlobalKey cho phép "teleport" widget sang vị trí khác mà không mất State.
-
----
-
-#### Q7 [Trace Code] — "Navigate to → tap back → navigate again: lifecycle methods nào được gọi?"
-
-```dart
-// Route A: HomeScreen
-// Route B: DetailScreen — StatefulWidget với print trong mọi lifecycle method
-class _DetailState extends State<DetailScreen> {
-  @override void initState() { super.initState(); print('initState'); }
-  @override void didChangeDependencies() { super.didChangeDependencies(); print('didChangeDependencies'); }
-  @override void build(context) { print('build'); return const Scaffold(); }
-  @override void deactivate() { super.deactivate(); print('deactivate'); }
-  @override void dispose() { print('dispose'); super.dispose(); }
-}
-```
-
-**Lần 1: Navigate từ Home → Detail:**
-```
-initState
-didChangeDependencies
-build
-```
-
-**Tap back (pop Detail):**
-```
-deactivate
-dispose
-```
-
-**Lần 2: Navigate lại Home → Detail:**
-```
-initState           ← State hoàn toàn mới (lần trước đã dispose)
-didChangeDependencies
-build
-```
-
-**Điểm quan trọng:** Mỗi lần navigate đến route mới (push), một Element và State mới được tạo. Không có State nào được "cached" giữa các lần navigate (trừ khi dùng `AutomaticKeepAliveClientMixin` với PageView/TabBarView hoặc nested navigator).
+*(Giải thích: Do widget sử dụng chung một `GlobalKey`, khi vị trí trong `Column` thay đổi, phần tử bị tháo khỏi vị trí cũ kích hoạt `deactivate()`, sau đó ngay trong cùng frame được gắn vào vị trí mới kích hoạt `activate()` và `build()`. Phương thức `dispose()` và `initState()` hoàn toàn không được gọi).*

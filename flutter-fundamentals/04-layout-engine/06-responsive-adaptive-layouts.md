@@ -1,672 +1,461 @@
-# Bài 4.6 — Responsive & Adaptive Layouts
+# Bài 4.6 — Responsive & Adaptive Layout Architecture
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Ràng Buộc Kiến Trúc (Architecture & Design Philosophy)
 
-### Tại sao bài này quan trọng?
+### 1.1 — Phân định ranh giới kiến trúc: Responsive vs Adaptive
 
-Flutter target multiple platforms (mobile, tablet, web, desktop) — một codebase. Nhưng UI đẹp trên phone không có nghĩa là đẹp trên tablet:
-
-```
-Phone (390px wide):
-  [List item 1]
-  [List item 2]
-  [List item 3]
-
-Tablet (900px wide) — nếu không responsive:
-  [List item 1                      ]  ← Trông rất lạ, nhiều whitespace
-  [List item 2                      ]
-
-Tablet — nếu responsive:
-  [List item 1] | [Detail view     ]  ← Master-detail layout!
-  [List item 2] |                    
-  [List item 3] |                    
-```
-
-### Sự khác biệt: Responsive vs Adaptive
-
-- **Responsive**: thay đổi layout theo *kích thước* màn hình (column count, font size)
-- **Adaptive**: thay đổi *hành vi* theo *platform* (Material trên Android, Cupertino trên iOS)
-
-### Bạn sẽ hiểu được sau bài này:
-- `MediaQuery` — screen size, orientation, text scale
-- `LayoutBuilder` — available space từ parent
-- Responsive breakpoints: mobile / tablet / desktop
-- `OrientationBuilder` — portrait vs landscape
-- Flexible spacing với `Flexible` và `FractionallySizedBox`
-
----
-
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
-
-### MediaQuery vs LayoutBuilder
-
-```mermaid
-graph LR
-    subgraph mq ["MediaQuery"]
-        MQ["MediaQuery.of(context)"]
-        MQ --> SW["screenWidth (full screen)"]
-        MQ --> SH["screenHeight (full screen)"]
-        MQ --> TS["textScaleFactor"]
-        MQ --> ORI["orientation"]
-        MQ --> PAD["padding (safe area)"]
-        MQ --> VI["viewInsets (keyboard)"]
-    end
-
-    subgraph lb ["LayoutBuilder"]
-        LB["LayoutBuilder"]
-        LB --> AW["availableWidth (parent constraint)"]
-        LB --> AH["availableHeight (parent constraint)"]
-        Note["Có thể khác screenWidth\nnếu widget trong Column/Padding"]
-    end
-
-    Prefer["Prefer LayoutBuilder\ncho widget-level responsive\nMediaQuery cho screen-level"]
-```
-
-### Breakpoints Strategy
+Flutter là một bộ công cụ đa nền tảng (Multi-platform Toolkit) cho phép biên dịch cùng một codebase lên điện thoại, máy tính bảng, màn hình gập, trình duyệt web và máy tính để bàn. Để đạt được trải nghiệm người dùng tự nhiên trên mọi thiết bị, hệ thống kiến trúc phân biệt rõ ràng hai khái niệm thường bị nhầm lẫn:
 
 ```
-Mobile:  0     - 599px
-Tablet:  600px - 1023px
-Desktop: 1024px+
+┌────────────────────────────────────────────────────────────────────────┐
+│ RESPONSIVE LAYOUT (Thích ứng hình học & Không gian hiển thị)          │
+│   • Phản ứng với:  Chiều rộng (Width), Chiều cao (Height), Tỷ lệ khung │
+│                    hình (Aspect Ratio), Hướng xoay (Orientation).       │
+│   • Mục tiêu:      Sắp xếp lại cấu trúc giao diện để tận dụng tối đa   │
+│                    diện tích khả dụng (ví dụ: chuyển từ 1 cột sang    │
+│                    Master-Detail 2 cột khi màn hình mở rộng).          │
+└────────────────────────────────────────────────────────────────────────┘
 
-Nhưng Flutter app trên tablet thường chạy cả hai:
-- Phone app trên tablet → MediaQuery.size.width = tablet width → cần responsive
-- Native tablet app → phải design cho tablet
+┌────────────────────────────────────────────────────────────────────────┐
+│ ADAPTIVE LAYOUT (Thích ứng bản chất nền tảng & Phương thức tương tác) │
+│   • Phản ứng với:  Hệ điều hành (Android, iOS, macOS, Windows, Linux), │
+│                    Thiết bị ngoại vi (Touchscreen, Chuột, Bàn phím).   │
+│   • Mục tiêu:      Cung cấp đúng hành vi bản địa (Native Idioms) của   │
+│                    từng OS (ví dụ: Cuộn overscroll kiểu iOS vs Android, │
+│                    Context Menu chuột phải trên Desktop, Back gesture). │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 1.2 — Nguyên lý Window Size Classes và Breakpoint Invariants
 
-### 3.1 — Breakpoint system đơn giản
+Theo tiêu chuẩn thiết kế hiện đại (Material 3 Adaptive Design), kích thước không gian hiển thị được phân chia thành ba lớp chuẩn mực (**Window Size Classes**) dựa trên chiều rộng khả dụng:
+
+$$\text{Window Width} \begin{cases} < 600\text{ dp} & \longrightarrow \mathbf{Compact} \text{ (Hầu hết Smartphone dạng dọc)} \\ 600\text{ dp} \le \text{Width} < 840\text{ dp} & \longrightarrow \mathbf{Medium} \text{ (Smartphone xoay ngang, Tablet nhỏ, Màn hình gập)} \\ \ge 840\text{ dp} & \longrightarrow \mathbf{Expanded} \text{ (Tablet lớn, Màn hình Desktop, Web)} \end{cases}$$
+
+Bất biến kiến trúc: **Một thiết kế responsive chất lượng cao không được phụ thuộc vào tên thiết bị (như "iPhone 15" hay "iPad Pro"), mà chỉ được phép phụ thuộc thuần túy vào miền giá trị hình học của Window Size Class hiện tại.**
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động & Mã Nguồn Đối Chiếu (Under the Hood / Deep-Dive)
+
+### 2.1 — Cơ chế phụ thuộc dữ liệu và Chi phí Rebuild của `MediaQuery`
+
+`MediaQuery` là một `InheritedWidget` tầng gốc lưu trữ cấu trúc `MediaQueryData`. Trước phiên bản Flutter 3.10, lời gọi truyền thống:
 
 ```dart
-// Định nghĩa breakpoints một lần, dùng khắp app
-enum Breakpoint { mobile, tablet, desktop }
+final Size size = MediaQuery.of(context).size;
+```
 
-extension BreakpointExt on double {
-  Breakpoint get breakpoint {
-    if (this >= 1024) return Breakpoint.desktop;
-    if (this >= 600) return Breakpoint.tablet;
-    return Breakpoint.mobile;
+Tạo ra một **đăng ký phụ thuộc toàn phần (Full Dependency Registration)**. `MediaQueryData` là một đối tượng dữ liệu phức tạp chứa hàng chục thuộc tính:
+- `size`: Kích thước cửa sổ.
+- `orientation`: Hướng xoay màn hình.
+- `padding`: Vùng đệm an toàn (tai thỏ, camera nốt ruồi).
+- `viewInsets`: Khoảng không gian bị che phủ bởi bàn phím ảo hệ thống.
+- `textScaler`: Tỷ lệ phóng to phông chữ của người dùng.
+- `platformBrightness`: Chế độ giao diện sáng/tối.
+
+```
+[Bàn phím ảo xuất hiện] ──► viewInsets.bottom thay đổi
+                                   │
+                                   ▼
+          Toàn bộ các Widget gọi MediaQuery.of(context) bị REBUILD!
+          (Kể cả widget chỉ cần đọc size.width để chia cột!)
+```
+
+#### Kiến trúc trích xuất vi mô (Fine-Grained Aspects) trong Flutter hiện đại:
+Bắt đầu từ Flutter 3.10, `MediaQuery` được tái cấu trúc thành một `InheritedModel`. Lớp này cho phép các widget chỉ đăng ký lắng nghe chính xác lát cắt dữ liệu (Aspect) mà chúng quan tâm thông qua các static method chuyên biệt:
+
+```dart
+// CHUẨN TỐI ƯU HIỆU NĂNG
+final Size size = MediaQuery.sizeOf(context);            // Chỉ rebuild khi SIZE đổi
+final EdgeInsets insets = MediaQuery.viewInsetsOf(context); // Chỉ rebuild khi BÀN PHÍM đổi
+final EdgeInsets padding = MediaQuery.paddingOf(context);   // Chỉ rebuild khi SAFE AREA đổi
+final Orientation orientation = MediaQuery.orientationOf(context);
+final TextScaler textScaler = MediaQuery.textScalerOf(context);
+```
+
+Khi bàn phím ảo bật lên hoặc ẩn đi, chỉ các widget gọi `MediaQuery.viewInsetsOf(context)` mới bị đưa vào danh sách bẩn của `BuildOwner`. Toàn bộ các widget bố cục khác gọi `MediaQuery.sizeOf(context)` được bảo toàn 100%, loại bỏ hoàn toàn các chu kỳ Rebuild thừa.
+
+---
+
+### 2.2 — `LayoutBuilder` vs `MediaQuery`: Phạm vi không gian
+
+| Tiêu chí | `MediaQuery.sizeOf(context)` | `LayoutBuilder` |
+| :--- | :--- | :--- |
+| **Phạm vi không gian** | Toàn cầu (Global Window / Screen Geometry). | Cục bộ (Local Parent Constraints). |
+| **Pha thực thi** | Pha Build (Build Phase). | Pha Bố cục (Layout Phase via `performLayout`). |
+| **Khả năng tái sử dụng (Reusability)** | Thấp: Phụ thuộc vào kích thước của cả màn hình thiết bị. | Rất cao: Tự thích ứng với mọi không gian chứa nó. |
+| **Ngữ cảnh sử dụng chuẩn** | Điều hướng cấp màn hình (Top-level Page Routing, Scaffold Adaptive Layout). | Thành phần giao diện cấp linh kiện (Component-level adaptation, Widget cards). |
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ MÀN HÌNH MÁY TÍNH ĐỂ BÀN (MediaQuery.sizeOf = 1440x900)     │
+│ ┌──────────────────────┐ ┌────────────────────────────────┐ │
+│ │ SIDEBAR (Width: 300) │ │ MAIN CONTENT AREA (Width: 1140)│ │
+│ │                      │ │                                │ │
+│ │ [Widget Card]        │ │ [Widget Card]                  │ │
+│ │ LayoutBuilder nhận   │ │ LayoutBuilder nhận             │ │
+│ │ maxWidth = 300px     │ │ maxWidth = 1140px              │ │
+│ └──────────────────────┘ └────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+Nếu `Widget Card` sử dụng `MediaQuery.sizeOf(context).width`, nó sẽ lầm tưởng rằng nó đang có $1440px$ không gian và hiển thị bố cục dạng ngang nhiều cột ngay cả khi đang bị co hẹp trong Sidebar $300px$, gây ra lỗi vỡ khung hình nghiêm trọng.
+
+---
+
+### 2.3 — Màn hình gập (Foldables) và API DisplayFeatures
+
+Với các thiết bị màn hình gập (như Samsung Galaxy Z Fold hoặc Microsoft Surface Duo), giao diện có thể bị cắt đôi bởi một nếp gập (Fold) hoặc một bản lề cơ học (Hinge).
+
+Framework cung cấp thông tin này thông qua thuộc tính `displayFeatures` của `MediaQueryData`:
+```dart
+final List<DisplayFeature> features = MediaQuery.displayFeaturesOf(context);
+for (final DisplayFeature feature in features) {
+  if (feature.type == DisplayFeatureType.hinge) {
+    // Bản lề cơ học vật lý: Tuyệt đối không vẽ nội dung quan trọng đè lên vùng bounds này
+    final Rect hingeBounds = feature.bounds;
   }
-}
-
-// Helper extension trên BuildContext
-extension ResponsiveContext on BuildContext {
-  double get screenWidth => MediaQuery.of(this).size.width;
-  Breakpoint get breakpoint => screenWidth.breakpoint;
-  bool get isMobile => breakpoint == Breakpoint.mobile;
-  bool get isTablet => breakpoint == Breakpoint.tablet;
-  bool get isDesktop => breakpoint == Breakpoint.desktop;
-}
-
-// Dùng:
-Widget build(BuildContext context) {
-  return switch (context.breakpoint) {
-    Breakpoint.mobile => MobileLayout(),
-    Breakpoint.tablet => TabletLayout(),
-    Breakpoint.desktop => DesktopLayout(),
-  };
 }
 ```
 
-### 3.2 — Responsive Column Count
+Widget `DisplayFeatureSubScreen` tự động chia nhỏ vùng hiển thị thành các không gian độc lập, ngăn chặn hiện tượng chữ hoặc nút bấm bị gãy đôi ở chính giữa bản lề thiết bị.
+
+---
+
+## Phần 3 — Hướng Dẫn Thực Hành Chuẩn (Production-Ready Implementations)
+
+### 3.1 — Kiến trúc Canonical Master-Detail Layout
+
+Mô hình chuẩn mực triển khai một màn hình hiển thị danh sách - chi tiết tự động chuyển đổi giữa Mobile (Navigation Stack push màn hình mới) và Tablet/Desktop (Hiển thị song song hai cột):
 
 ```dart
-class ResponsiveProductGrid extends StatelessWidget {
-  final List<Product> products;
-  const ResponsiveProductGrid({super.key, required this.products});
+import 'package:flutter/material.dart';
+
+class CanonicalMasterDetailScreen extends StatefulWidget {
+  const CanonicalMasterDetailScreen({super.key});
+
+  @override
+  State<CanonicalMasterDetailScreen> createState() => _CanonicalMasterDetailScreenState();
+}
+
+class _CanonicalMasterDetailScreenState extends State<CanonicalMasterDetailScreen> {
+  int? _selectedItemId;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Tính column count dựa trên available width
-        // (không phải screen width!)
-        final columnCount = switch (constraints.maxWidth) {
-          >= 1024 => 4,   // Desktop: 4 columns
-          >= 600  => 3,   // Tablet: 3 columns
-          >= 400  => 2,   // Large phone: 2 columns
-          _       => 1,   // Small phone: 1 column
-        };
+    // Đọc kích thước màn hình thông qua API vi mô
+    final double screenWidth = MediaQuery.sizeOf(context).width;
+    final bool isExpandedLayout = screenWidth >= 840.0;
 
-        return GridView.builder(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columnCount,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 0.75,
-          ),
-          itemCount: products.length,
-          itemBuilder: (_, i) => ProductCard(product: products[i]),
-        );
-      },
-    );
-  }
-}
-```
-
-### 3.3 — Master-Detail Layout cho tablet
-
-```dart
-class ProductMasterDetail extends StatefulWidget {
-  final List<Product> products;
-  const ProductMasterDetail({super.key, required this.products});
-  @override State<ProductMasterDetail> createState() => _ProductMasterDetailState();
-}
-
-class _ProductMasterDetailState extends State<ProductMasterDetail> {
-  Product? _selectedProduct;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 600;
-
-        if (isWide) {
-          // Tablet: Master-Detail side by side
-          return Row(
-            children: [
-              // Master: 40% width
-              SizedBox(
-                width: constraints.maxWidth * 0.4,
-                child: _MasterList(
-                  products: widget.products,
-                  selectedId: _selectedProduct?.id,
-                  onSelect: (p) => setState(() => _selectedProduct = p),
-                ),
-              ),
-              // Divider
-              const VerticalDivider(width: 1),
-              // Detail: remaining 60%
-              Expanded(
-                child: _selectedProduct != null
-                    ? ProductDetailView(product: _selectedProduct!)
-                    : const Center(child: Text('Chọn sản phẩm để xem chi tiết')),
-              ),
-            ],
-          );
-        } else {
-          // Mobile: List only, detail on push
-          return _MasterList(
-            products: widget.products,
-            selectedId: null,
-            onSelect: (p) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => Scaffold(
-                    appBar: AppBar(title: Text(p.name)),
-                    body: ProductDetailView(product: p),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Quản Lý Đơn Hàng')),
+      body: isExpandedLayout
+          ? Row(
+              children: [
+                // Cột Master (Danh sách) cố định 360px
+                SizedBox(
+                  width: 360.0,
+                  child: OrderListView(
+                    selectedId: _selectedItemId,
+                    onSelect: (id) => setState(() => _selectedItemId = id),
                   ),
                 ),
-              );
-            },
-          );
-        }
-      },
+                const VerticalDivider(width: 1.0),
+                // Cột Detail (Chi tiết) mở rộng chiếm toàn bộ không gian còn lại
+                Expanded(
+                  child: _selectedItemId != null
+                      ? OrderDetailView(orderId: _selectedItemId!)
+                      : const Center(child: Text('Vui lòng chọn một đơn hàng để xem chi tiết')),
+                ),
+              ],
+            )
+          : OrderListView(
+              selectedId: _selectedItemId,
+              onSelect: (id) {
+                // Trên màn hình Compact: Push route mới sang trang chi tiết
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => Scaffold(
+                      appBar: AppBar(title: Text('Đơn hàng #$id')),
+                      body: OrderDetailView(orderId: id),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
 
-class _MasterList extends StatelessWidget {
-  final List<Product> products;
-  final String? selectedId;
-  final ValueChanged<Product> onSelect;
+class OrderListView extends StatelessWidget {
+  final int? selectedId;
+  final ValueChanged<int> onSelect;
 
-  const _MasterList({
-    required this.products,
-    required this.selectedId,
-    required this.onSelect,
-  });
+  const OrderListView({super.key, required this.selectedId, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      itemCount: products.length,
-      itemBuilder: (_, i) {
-        final product = products[i];
-        final isSelected = product.id == selectedId;
+      itemCount: 20,
+      itemBuilder: (context, index) {
+        final bool isSelected = selectedId == index;
         return ListTile(
           selected: isSelected,
-          selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
-          title: Text(product.name),
-          subtitle: Text('${product.price}đ'),
-          onTap: () => onSelect(product),
-        );
-      },
-    );
-  }
-}
-```
-
-### 3.4 — OrientationBuilder và Text Scale
-
-```dart
-class AdaptiveScreen extends StatelessWidget {
-  const AdaptiveScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // MediaQuery cung cấp nhiều thông tin hữu ích
-    final mediaQuery = MediaQuery.of(context);
-    final textScale = mediaQuery.textScaler;
-    final padding = mediaQuery.padding; // Safe area (notch, home indicator)
-
-    return OrientationBuilder(
-      builder: (context, orientation) {
-        // Thay đổi layout theo portrait/landscape
-        final isPortrait = orientation == Orientation.portrait;
-
-        return Padding(
-          // Tôn trọng safe area
-          padding: EdgeInsets.only(
-            top: padding.top,
-            bottom: padding.bottom,
-          ),
-          child: isPortrait ? _PortraitLayout() : _LandscapeLayout(),
+          title: Text('Đơn hàng #$index'),
+          subtitle: const Text('Chờ thanh toán • 500.000 đ'),
+          onTap: () => onSelect(index),
         );
       },
     );
   }
 }
 
-class _PortraitLayout extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Flexible width cho portrait
-        const Expanded(child: ProductList()),
-        const _BottomBar(),
-      ],
-    );
-  }
-}
+class OrderDetailView extends StatelessWidget {
+  final int orderId;
+  const OrderDetailView({super.key, required this.orderId});
 
-class _LandscapeLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // Sidebar cho landscape
-        const SizedBox(width: 200, child: ProductList()),
-        const VerticalDivider(width: 1),
-        const Expanded(child: MainContent()),
-      ],
+    return Center(
+      child: Text(
+        'Chi tiết đơn hàng #$orderId',
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
     );
   }
 }
 ```
 
-### 3.5 — FractionallySizedBox — Percentage-based sizing
+---
+
+### 3.2 — Triển khai Adaptive Navigation Bar đa nền tảng
+
+Tự động chuyển đổi cấu trúc điều hướng giữa các kích thước màn hình theo khuyến nghị của Material 3:
 
 ```dart
-Widget build(BuildContext context) {
-  return Column(
-    children: [
-      // 80% chiều rộng parent
-      FractionallySizedBox(
-        widthFactor: 0.8, // 80%
-        child: TextField(decoration: InputDecoration(labelText: 'Email')),
-      ),
+import 'package:flutter/material.dart';
 
-      const SizedBox(height: 16),
+class AdaptiveNavigationScaffold extends StatefulWidget {
+  final List<NavigationDestination> destinations;
+  final List<Widget> pages;
 
-      // 100% chiều rộng, 50% chiều cao
-      FractionallySizedBox(
-        widthFactor: 1.0,
-        heightFactor: 0.5,
-        child: Image.network(bannerUrl, fit: BoxFit.cover),
-      ),
+  const AdaptiveNavigationScaffold({
+    super.key,
+    required this.destinations,
+    required this.pages,
+  });
 
-      // Flexible spacing: responsive gap
-      const Spacer(), // Fill remaining
+  @override
+  State<AdaptiveNavigationScaffold> createState() => _AdaptiveNavigationScaffoldState();
+}
 
-      // Safe button width
-      FractionallySizedBox(
-        widthFactor: 0.9,
-        child: FilledButton(
-          onPressed: () {},
-          child: const Text('Tiếp tục'),
+class _AdaptiveNavigationScaffoldState extends State<AdaptiveNavigationScaffold> {
+  int _currentIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final double width = MediaQuery.sizeOf(context).width;
+
+    // Compact: NavigationBar ở đáy màn hình
+    if (width < 600.0) {
+      return Scaffold(
+        body: widget.pages[_currentIndex],
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+          destinations: widget.destinations,
         ),
-      ),
-    ],
-  );
-}
-```
-
----
-
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
-
-### ❌ Anti-pattern 1: Hardcode pixel size
-
-```dart
-// ❌ Sai: hardcode pixel → vỡ trên màn hình khác
-Container(
-  width: 390, // Chỉ đúng trên iPhone 14!
-  height: 844,
-)
-
-// ✅ Đúng: Responsive
-LayoutBuilder(
-  builder: (context, constraints) => Container(
-    width: constraints.maxWidth, // Fill available
-    height: constraints.maxHeight * 0.5, // 50% available
-  ),
-)
-```
-
-### ❌ Anti-pattern 2: `MediaQuery.of(context).size` trong deep widget
-
-```dart
-// ❌ Không chính xác: screenWidth ≠ available width nếu trong Drawer/Dialog
-Widget build(BuildContext context) {
-  final screenWidth = MediaQuery.of(context).size.width; // Screen size!
-  return Container(width: screenWidth * 0.5); // Sai khi widget trong Drawer
-}
-
-// ✅ Đúng: LayoutBuilder cho accurate available space
-LayoutBuilder(
-  builder: (context, constraints) => Container(
-    width: constraints.maxWidth * 0.5, // Actual available width
-  ),
-)
-```
-
-### ❌ Anti-pattern 3: Không test tablet layout
-
-```dart
-// Dùng Flutter DevTools Device Toolbar:
-// Chrome DevTools → Device Toolbar → chọn tablet
-// Hoặc trong Android Studio: AVD Manager → Pixel Tablet
-
-// Minimum testing:
-// - Phone portrait: 390x844
-// - Phone landscape: 844x390
-// - Tablet portrait: 768x1024
-// - Tablet landscape: 1024x768
-```
-
----
-
-## Phần 5 — Bài Tập Củng Cố Tư Duy
-
-### Challenge: Layout Thay Đổi Từ 1 Cột (Mobile) → 2 Cột (Tablet)
-
-**Yêu cầu:**
-- Mobile (<600px): danh sách 1 cột dọc
-- Tablet (>=600px): grid 2 cột
-- Desktop (>=1024px): grid 3 cột
-- Khi chọn item trên tablet: hiện detail ở bên phải (master-detail)
-- Khi chọn item trên mobile: navigate sang màn hình mới
-
-**Gợi ý:**
-- `LayoutBuilder` cho column count
-- `Row` + `VerticalDivider` cho master-detail
-- `Navigator.push` cho mobile detail
-
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
-
----
-
-#### Q1 [Junior] — "Responsive vs Adaptive trong Flutter — khác biệt là gì?"
-
-**Trả lời chuẩn:**
-
-| | Responsive | Adaptive |
-|---|---|---|
-| **Thay đổi dựa trên** | Screen size / available space | Platform (iOS vs Android vs Web) |
-| **Mục tiêu** | Layout phù hợp với kích thước | UI pattern phù hợp với platform |
-| **Ví dụ** | 1 column phone → 3 column tablet | Material Switch (Android) vs Cupertino Switch (iOS) |
-
-```dart
-// Responsive — layout thay đổi theo screen width
-LayoutBuilder(builder: (ctx, constraints) {
-  if (constraints.maxWidth > 600) {
-    return const TwoColumnLayout();
-  }
-  return const SingleColumnLayout();
-})
-
-// Adaptive — widget thay đổi theo platform
-Platform.isIOS
-    ? CupertinoSwitch(value: _val, onChanged: ...)
-    : Switch(value: _val, onChanged: ...)
-
-// Hoặc dùng adaptive constructors (Flutter 3+)
-Switch.adaptive(value: _val, onChanged: ...)
-```
-
----
-
-#### Q2 [Junior] — "`FractionallySizedBox` dùng khi nào?"
-
-**Trả lời chuẩn:**
-
-`FractionallySizedBox` cho phép size widget theo **phần trăm của parent**, thay vì giá trị pixel cố định:
-
-```dart
-// Button chiếm 80% width của parent
-FractionallySizedBox(
-  widthFactor: 0.8,   // 80% of parent width
-  child: ElevatedButton(
-    onPressed: () {},
-    child: const Text('Login'),
-  ),
-)
-
-// Banner chiếm 30% height
-FractionallySizedBox(
-  heightFactor: 0.3,  // 30% of parent height
-  child: Container(color: Colors.blue),
-)
-
-// Trong Row/Column — cần Flexible wrapper
-Row(children: [
-  Flexible(
-    child: FractionallySizedBox(
-      widthFactor: 0.6, // 60% of Flexible's allocation
-      child: Container(color: Colors.red),
-    ),
-  ),
-])
-```
-
-**Ưu điểm so với hardcoded pixels:** Tự động scale trên mọi screen size — phone, tablet, desktop.
-
----
-
-#### Q3 [Middle] — "Khi nào dùng `MediaQuery` vs `LayoutBuilder`? Trade-off?"
-
-**Trả lời chuẩn:**
-
-| | `MediaQuery.of(context)` | `LayoutBuilder` |
-|---|---|---|
-| **Trả về** | Screen-level info (size, padding, textScale) | Available space từ parent constraint |
-| **Phù hợp** | Screen-level decisions | Component-level decisions |
-| **Rebuild khi** | Screen size / orientation / insets thay đổi | Constraint từ parent thay đổi |
-| **Ví dụ** | Safe area insets, keyboard visibility | Column count trong grid, sidebar width |
-
-```dart
-// ✅ MediaQuery — screen-level
-Widget buildBottomBar() {
-  final bottomInset = MediaQuery.of(context).viewInsets.bottom; // keyboard height
-  return Padding(
-    padding: EdgeInsets.only(bottom: bottomInset),
-    child: const BottomBar(),
-  );
-}
-
-// ✅ LayoutBuilder — component-level
-Widget buildCard() {
-  return LayoutBuilder(
-    builder: (ctx, constraints) {
-      // Component này có thể nằm trong sidebar (300px) hoặc full screen (390px)
-      return constraints.maxWidth > 350
-          ? const WideCardLayout()
-          : const NarrowCardLayout();
-    },
-  );
-}
-// Không dùng MediaQuery vì card không biết nó đang ở đâu trong layout
-```
-
----
-
-#### Q4 [Senior] — "`MediaQuery.of(context)` gây rebuild khi nào? Tại sao `MediaQuery.sizeOf()` (Flutter 3.10+) tốt hơn?"
-
-**Trả lời chuẩn:**
-
-`MediaQuery.of(context)` register dependency vào **toàn bộ `MediaQueryData` object**. Bất kỳ thay đổi nào trong `MediaQueryData` (size, orientation, textScaleFactor, viewInsets, padding, v.v.) đều trigger rebuild.
-
-**Vấn đề:** Khi keyboard xuất hiện, `viewInsets.bottom` thay đổi → `MediaQueryData` thay đổi → **mọi widget dùng `MediaQuery.of(context)`** đều rebuild — kể cả widget chỉ dùng `size` (không liên quan đến keyboard).
-
-**Flutter 3.10+ giải pháp — fine-grained methods:**
-
-```dart
-// ❌ Cũ — rebuild khi bất kỳ MediaQueryData field nào thay đổi
-final size = MediaQuery.of(context).size;
-
-// ✅ Mới — chỉ rebuild khi size thay đổi (orientation change)
-final size = MediaQuery.sizeOf(context);
-
-// ✅ Các phương thức fine-grained khác
-final padding = MediaQuery.paddingOf(context);
-final viewInsets = MediaQuery.viewInsetsOf(context);
-final textScaleFactor = MediaQuery.textScalerOf(context);
-```
-
-**Cơ chế:** `MediaQuery.sizeOf(context)` gọi `context.dependOnInheritedWidgetOfExactType<MediaQuery>()` với một "aspect" filter, chỉ register dependency vào `size` field — không phải toàn bộ `MediaQueryData`.
-
----
-
-#### Q5 [Middle] — "Breakpoint approach vs `LayoutBuilder` approach: trade-off?"
-
-**Trả lời chuẩn:**
-
-**Breakpoint approach:**
-```dart
-// Global breakpoints
-const mobileBreakpoint = 600.0;
-const tabletBreakpoint = 1200.0;
-
-// Dùng MediaQuery (screen level)
-final width = MediaQuery.sizeOf(context).width;
-if (width > tabletBreakpoint) return const TabletLayout();
-if (width > mobileBreakpoint) return const TabletLayout();
-return const MobileLayout();
-```
-
-**LayoutBuilder approach:**
-```dart
-// Local available space
-LayoutBuilder(builder: (ctx, constraints) {
-  if (constraints.maxWidth > 600) return const WideLayout();
-  return const NarrowLayout();
-})
-```
-
-| Aspect | Breakpoint (MediaQuery) | LayoutBuilder |
-|---|---|---|
-| **Scope** | Screen-level global | Component-level local |
-| **Reuse** | Component phụ thuộc screen size → khó reuse | Component phụ thuộc available space → reusable |
-| **Testing** | Cần mock screen size | Chỉ cần mock constraints |
-| **Sideeffects** | Rebuild khi keyboard show (nếu dùng `MediaQuery.of`) | Chỉ rebuild khi parent layout thay đổi |
-
-**Best practice:** Dùng breakpoints cho **screen-level routing** (which screen layout to show). Dùng `LayoutBuilder` cho **component-level adaptation** (how component renders given available space).
-
----
-
-#### Q6 [Middle] — "`AdaptiveScaffold` (Flutter Adaptive Library) giải quyết vấn đề gì?"
-
-**Trả lời chuẩn:**
-
-`AdaptiveScaffold` từ package `flutter_adaptive_scaffold` giải quyết vấn đề **boilerplate responsive navigation** — thường phải viết nhiều `if/else` để handle phone/tablet/desktop:
-
-```dart
-// Không có AdaptiveScaffold — phải tự handle mọi breakpoint
-Widget build(context) {
-  final width = MediaQuery.sizeOf(context).width;
-  if (width > 1200) {
-    return Row(children: [
-      SizedBox(width: 300, child: NavigationDrawer(...)),
-      Expanded(child: body),
-      SizedBox(width: 300, child: SecondaryPanel()),
-    ]);
-  }
-  if (width > 600) {
-    return Row(children: [
-      NavigationRail(...),
-      Expanded(child: body),
-    ]);
-  }
-  return Scaffold(bottomNavigationBar: ..., body: body);
-}
-
-// Với AdaptiveScaffold — declarative, tự handle breakpoints
-AdaptiveScaffold(
-  destinations: const [...],
-  body: (_) => const MainContent(),
-  secondaryBody: (_) => const DetailPanel(), // chỉ show trên tablet+
-)
-// Tự động: phone → BottomNav, tablet → NavigationRail, desktop → Drawer + rail
-```
-
-`LayoutBuilder` thuần không giải quyết được **navigation pattern** — nó chỉ cho biết available space, không có khái niệm về navigation components.
-
----
-
-#### Q7 [Trace Code] — "`MediaQuery.textScaleFactor` thay đổi: widget nào bị ảnh hưởng?"
-
-```dart
-class App extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        body: Column(
+      );
+    }
+
+    // Medium: NavigationRail dạng cột hẹp bên trái
+    if (width < 840.0) {
+      return Scaffold(
+        body: Row(
           children: [
-            // (A) Text với explicit style
-            const Text(
-              'Hello World',
-              style: TextStyle(fontSize: 16),
+            NavigationRail(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+              labelType: NavigationRailLabelType.selected,
+              destinations: widget.destinations
+                  .map((d) => NavigationRailDestination(
+                        icon: d.icon,
+                        selectedIcon: d.selectedIcon,
+                        label: Text(d.label),
+                      ))
+                  .toList(),
             ),
-            
-            // (B) Text với fontSize không set
-            const Text('Default size'),
-            
-            // (C) Icon
-            const Icon(Icons.star, size: 24),
-            
-            // (D) Container với height cố định
-            Container(height: 50, color: Colors.blue),
-            
-            // (E) Text với textScaler disabled
-            Text(
-              'No Scale',
-              style: const TextStyle(fontSize: 16),
-              textScaler: TextScaler.noScaling, // Flutter 3.12+
-            ),
+            const VerticalDivider(width: 1.0),
+            Expanded(child: widget.pages[_currentIndex]),
           ],
         ),
+      );
+    }
+
+    // Expanded: NavigationDrawer mở rộng có đầy đủ nhãn văn bản
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationDrawer(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text('Hệ Thống Quản Trị', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              ...widget.destinations.map(
+                (d) => NavigationDrawerDestination(
+                  icon: d.icon,
+                  selectedIcon: d.selectedIcon,
+                  label: Text(d.label),
+                ),
+              ),
+            ],
+          ),
+          const VerticalDivider(width: 1.0),
+          Expanded(child: widget.pages[_currentIndex]),
+        ],
       ),
     );
   }
 }
 ```
 
-**Khi user tăng system font size (textScaleFactor: 1.0 → 1.5):**
+---
 
-- **(A) `Text(style: TextStyle(fontSize: 16))`** → **bị ảnh hưởng** — Flutter nhân `fontSize × textScaleFactor` = 16 × 1.5 = 24px → Text lớn hơn
-- **(B) `Text('Default size')`** → **bị ảnh hưởng** — default fontSize từ Theme, cũng được scale
-- **(C) `Icon(size: 24)`** → **không bị ảnh hưởng** (mặc định) — Icon size không phụ thuộc textScaleFactor
-- **(D) `Container(height: 50)`** → **không bị ảnh hưởng** — hardcoded pixel
-- **(E) `Text(textScaler: TextScaler.noScaling)`** → **không bị ảnh hưởng** — đã opt out
+## Phần 4 — Lỗi Thường Gặp & Giải Pháp Khắc Phục (Anti-Patterns & Pitfalls)
 
-**Hậu quả thực tế:** Text dài hơn có thể overflow container cố định → layout break. Nên dùng `flexible` sizing cho containers chứa Text, hoặc test với textScaleFactor lớn trong DevTools.
+### 4.1 — Sử dụng `MediaQuery.of(context)` tại các node lá của Widget Tree
+
+#### Mô tả lỗi:
+Chèn lời gọi `MediaQuery.of(context).size` vào các widget hiển thị sâu bên trong cây (như Button, ListTile, Card). Khi người dùng chạm vào một trường nhập liệu `TextField`, bàn phím ảo trượt lên khiến toàn bộ cây giao diện bị lag và giật khung hình.
+
+#### Giải pháp:
+Thay thế ngay lập tức bằng `MediaQuery.sizeOf(context)` hoặc chuyển logic tính toán kích thước ra node cha ở tầng Route và truyền dữ liệu thuần túy xuống thông qua tham số constructor.
+
+---
+
+### 4.2 — Hardcode kích thước văn bản và không xử lý `TextScaler`
+
+#### Mô tả lỗi:
+Gán chiều cao cố định cho một container chứa văn bản (`SizedBox(height: 40, child: Text(...))`). Khi người dùng là người khiếm thị kích hoạt tính năng Accessibility của hệ điều hành, phóng to font chữ lên $1.5\times$ hoặc $2.0\times$, văn bản lập tức bị tràn và xuất hiện sọc vàng đen `A RenderFlex overflowed...`.
+
+#### Giải pháp:
+1. Tránh hardcode `height` trên các container chứa văn bản tự do.
+2. Kiểm tra giới hạn co giãn với `textScaler`:
+   ```dart
+   Text(
+     'Văn bản an toàn',
+     textScaler: MediaQuery.textScalerOf(context).clamp(minScaleFactor: 1.0, maxScaleFactor: 1.3),
+   )
+   ```
+
+---
+
+## Phần 5 — Câu Hỏi Kiểm Tra Kiến Thức Chuyên Sâu & Bài Tập Phân Tích Mã Nguồn (Technical Assessment & Code Tracing)
+
+### 5.1 — Câu hỏi khảo sát kiến trúc
+
+#### Câu 1: Cơ chế hoạt động của `InheritedModel` trong `MediaQuery`
+*Đề bài:* Phân tích cơ chế nội bộ của `InheritedModel.inheritFrom(context, aspect: ...)` cho phép framework lọc bớt các thông báo thay đổi (Notification Dispatching). Tại sao việc chia nhỏ thành `MediaQuery.sizeOf` lại tối ưu hơn về mặt cấu trúc dữ liệu so với một `InheritedWidget` truyền thống?
+
+*Phân tích kỹ thuật:*
+1. Trong một `InheritedWidget` thông thường, khi đối tượng dữ liệu thay đổi, phương thức `updateShouldNotify()` trả về `true` sẽ đưa **toàn bộ mọi Element** đã từng gọi `dependOnInheritedWidgetOfExactType()` vào danh sách `_dirtyElements` của `BuildOwner`.
+2. `InheritedModel` mở rộng cơ chế này bằng cách gán cho mỗi Element phụ thuộc một tập hợp các `aspect` (nhãn khía cạnh quan tâm).
+3. Trong phương thức `updateShouldNotifyDependent(InheritedModel oldWidget, Set<Object> dependencies)`:
+   - Framework so sánh từng trường dữ liệu cụ thể.
+   - Nếu chỉ có trường `viewInsets` thay đổi (do bàn phím), framework chỉ đánh dấu bẩn các Element có `dependencies.contains(_MediaQueryAspect.viewInsets)`.
+   - Các Element chỉ đăng ký `_MediaQueryAspect.size` hoàn toàn bị bỏ qua, không bị thêm vào hàng đợi build.
+
+---
+
+#### Câu 2: Tác động của `LayoutBuilder` lên Pipeline Bố Cục
+*Đề bài:* Tại sao việc lạm dụng `LayoutBuilder` ở quá nhiều cấp con lồng nhau sâu có thể gây suy giảm hiệu năng kết xuất so với việc truyền tham số tĩnh?
+
+*Phân tích kỹ thuật:*
+1. `LayoutBuilder` ngắt nhịp đường ống xử lý thông thường: Nó trì hoãn pha Build của một cây con cho đến tận khi Render Tree thực thi phương thức `performLayout()` của `RenderConstrainedLayoutBuilder`.
+2. Việc triệu hồi `builder(context, constraints)` ngay bên trong pha Layout đòi hỏi Engine phải tạm dừng chu trình xử lý hình học để quay lại thực thi Dart code của hàm build.
+3. Khi lồng ghép nhiều tầng `LayoutBuilder`, framework phải liên tục chuyển đổi ngữ cảnh giữa Layout Pass và Build Pass, làm mất đi khả năng tối ưu hóa song song và làm tăng thời gian xử lý khung hình của CPU.
+
+---
+
+### 5.2 — Bài tập phân tích luồng thực thi (Code Tracing)
+
+#### Đề bài:
+Cho cấu trúc Widget Tree sau:
+
+```dart
+class RootScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          HeaderTitleWidget(),     // (Node A)
+          ContentGridWidget(),      // (Node B)
+          FooterInputWidget(),      // (Node C)
+        ],
+      ),
+    );
+  }
+}
+
+class HeaderTitleWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    // Lời gọi 1: Đọc size
+    final Size size = MediaQuery.sizeOf(context);
+    return Container(width: size.width, height: 60.0, child: Text('Header'));
+  }
+}
+
+class ContentGridWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    // Lời gọi 2: Đọc orientation
+    final Orientation orientation = MediaQuery.orientationOf(context);
+    return Expanded(
+      child: Center(child: Text('Chế độ: $orientation')),
+    );
+  }
+}
+
+class FooterInputWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    // Lời gọi 3: Đọc viewInsets bàn phím
+    final EdgeInsets insets = MediaQuery.viewInsetsOf(context);
+    return Container(
+      padding: EdgeInsets.only(bottom: insets.bottom),
+      child: const TextField(),
+    );
+  }
+}
+```
+
+Giả sử người dùng đang mở ứng dụng ở chế độ màn hình dọc (Portrait), sau đó chạm tay vào `TextField` tại `FooterInputWidget` làm bàn phím ảo xuất hiện trên màn hình (thay đổi `viewInsets.bottom` từ $0.0 \to 300.0$, chiều rộng và chiều cao cửa sổ không đổi).
+
+Hãy xác định chính xác:
+1. Node nào trong số các Node A, Node B, Node C sẽ bị kích hoạt lại phương thức `build()`?
+2. Node nào được framework bỏ qua hoàn toàn?
+3. Giải thích cơ chế nội bộ của `InheritedModel` đã quyết định hành vi trên như thế nào.
+
+---
+
+#### Đáp án phân tích:
+
+**1. Các Node bị kích hoạt lại phương thức `build()`:**
+- **Duy nhất Node C (`FooterInputWidget`)** bị kích hoạt lại hàm `build()`.
+- *Nguyên nhân:* Node C sử dụng `MediaQuery.viewInsetsOf(context)`. Khi bàn phím xuất hiện, `viewInsets.bottom` thay đổi từ $0.0$ lên $300.0$. `InheritedModel` phát hiện khía cạnh phụ thuộc `_MediaQueryAspect.viewInsets` của Node C bị kích hoạt, do đó chỉ đưa Node C vào danh sách cần rebuild.
+
+**2. Các Node được bỏ qua hoàn toàn:**
+- **Node A (`HeaderTitleWidget`)** và **Node B (`ContentGridWidget`)** hoàn toàn **KHÔNG bị rebuild**.
+- Cả `RootScreen` cũng **KHÔNG bị rebuild**.
+
+**3. Cơ chế giải thích nội bộ:**
+- Node A đăng ký aspect: `_MediaQueryAspect.size`. Vì kích thước tổng thể của cửa sổ ứng dụng không đổi, `size` không đổi $\longrightarrow$ Bỏ qua Node A.
+- Node B đăng ký aspect: `_MediaQueryAspect.orientation`. Thiết bị vẫn duy trì hướng dọc (Portrait) $\longrightarrow$ Bỏ qua Node B.
+- Đây chính là minh chứng rõ ràng nhất cho sức mạnh của mô hình Fine-Grained Aspects trong Flutter hiện đại: Việc bàn phím ảo xuất hiện chỉ làm tiêu tốn CPU để render lại đúng khu vực nhập liệu, bảo vệ toàn bộ phần còn lại của giao diện không bị giật lag.
