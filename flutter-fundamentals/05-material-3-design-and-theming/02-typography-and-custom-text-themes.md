@@ -1,6 +1,6 @@
 # Chuyên Đề 05 - Bài 02: Hệ Thống Kiểu Chữ (Typography & TextTheme) Chuẩn Google
 
-> **Trọng tâm**: 15 kiểu chữ phân cấp trong Material 3 `TextTheme`, Bản chất tham số chiều cao dòng `height`, Sự thay thế mang tính cách mạng của `TextScaler` (Flutter 3.16+) thay thế `textScaleFactor`, Đối chiếu nhúng Font cục bộ vs `google_fonts`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: 15 kiểu chữ phân cấp trong Material 3 `TextTheme`, Bản chất tham số chiều cao dòng `height`, Sự thay thế mang tính cách mạng của `TextScaler` (Flutter 3.16+) thay thế `textScaleFactor`, Đối chiếu nhúng Font cục bộ vs `google_fonts`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -98,7 +98,7 @@ MediaQuery(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Trong `TextStyle`, tham số `height` có đơn vị tính là gì? Tại sao việc đặt `height: 24.0` cho một đoạn chữ có `fontSize: 16.0` lại gây ra lỗi hiển thị khoảng trống khổng lồ?
 

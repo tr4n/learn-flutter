@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 01: Sound Null Safety & Hệ Thống Kiểu Trong Dart 3
 
-> **Trọng tâm**: Cơ chế Sound Null Safety, Flow Analysis, Type Promotion, Cạm bẫy toán tử bang (`!`), Late Initialization (`late`), Kỹ thuật phòng thủ lỗi Null runtime, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Cơ chế Sound Null Safety, Flow Analysis, Type Promotion, Cạm bẫy toán tử bang (`!`), Late Initialization (`late`), Kỹ thuật phòng thủ lỗi Null runtime, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -182,7 +182,7 @@ class CustomCard extends StatelessWidget {
 
 ---
 
-## 🎯 6. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 6. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Sự khác nhau bản chất giữa `Object?` và `dynamic` trong hệ thống kiểu của Dart? Khi nào bắt buộc phải dùng `dynamic`?
 **Trả lời chuẩn 10/10**:

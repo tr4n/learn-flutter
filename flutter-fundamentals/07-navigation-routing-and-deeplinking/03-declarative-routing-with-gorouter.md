@@ -1,6 +1,6 @@
 # Chuyên Đề 07 - Bài 03: Điều Hướng Khai Báo Với GoRouter (Chuẩn Google)
 
-> **Trọng tâm**: Bản chất điều hướng khai báo (Declarative Routing), Phân biệt kinh điển `context.go()` vs `context.push()`, Bảo tồn trạng thái đa nhánh với `StatefulShellRoute.indexedStack`, Hệ thống Route Guards phản ứng tự động với `refreshListenable`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Bản chất điều hướng khai báo (Declarative Routing), Phân biệt kinh điển `context.go()` vs `context.push()`, Bảo tồn trạng thái đa nhánh với `StatefulShellRoute.indexedStack`, Hệ thống Route Guards phản ứng tự động với `refreshListenable`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -14,9 +14,9 @@ Trong khi đó, **`go_router`** (thư viện chính thức được Google Flutt
 
 ---
 
-## 2. Trọng Tâm Phỏng Vấn: `context.go()` vs `context.push()`
+## 2. Trọng Tâm Phân Tích Chuyên Sâu: `context.go()` vs `context.push()`
 
-Đây là câu hỏi xuất hiện trong 90% các buổi phỏng vấn tuyển dụng Flutter Senior:
+Đây là một trong những cạm bẫy kiến trúc kinh điển mà kỹ sư thường gặp phải:
 
 ```mermaid
 graph TD
@@ -162,7 +162,7 @@ final GoRouter protectedRouter = GoRouter(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân tích sự khác biệt cốt lõi giữa `context.go()` và `context.push()` trong `go_router`. Điều gì xảy ra với ngăn xếp Route (Navigation Stack) và nút Back trong từng trường hợp?
 

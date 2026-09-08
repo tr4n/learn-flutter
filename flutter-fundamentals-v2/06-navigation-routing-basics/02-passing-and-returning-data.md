@@ -331,7 +331,7 @@ ProductList ← update list      ProductDetail ← updated product
 4. `ProductDetail` nhận updated product → pop(updatedProduct) lên List
 5. `ProductList` update item trong list
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

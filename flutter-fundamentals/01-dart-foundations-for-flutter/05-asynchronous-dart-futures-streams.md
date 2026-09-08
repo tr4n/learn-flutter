@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 05: Lập Trình Bất Đồng Bộ Trong Dart (Futures, Streams, Isolates & UI Safety)
 
-> **Trọng tâm**: Cơ chế Event Loop & Microtask Queue từ góc nhìn Flutter UI, Tối ưu hóa đa luồng với `Isolate.run()` / `compute()`, Chạy song song với `Future.wait()`, Cầu nối callback với `Completer<T>`, Cạm bẫy sống còn `mounted check`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Cơ chế Event Loop & Microtask Queue từ góc nhìn Flutter UI, Tối ưu hóa đa luồng với `Isolate.run()` / `compute()`, Chạy song song với `Future.wait()`, Cầu nối callback với `Completer<T>`, Cạm bẫy sống còn `mounted check`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -120,7 +120,7 @@ void _handleLogin() async {
 
 ---
 
-## 🎯 6. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 6. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Microtask Queue khác gì với Event Queue? Nếu vô tình tạo một đệ quy vô hạn trong Microtask (`scheduleMicrotask`), điều gì sẽ xảy ra với ứng dụng Flutter?
 **Trả lời chuẩn 10/10**:

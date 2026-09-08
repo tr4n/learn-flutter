@@ -68,7 +68,7 @@ Vòng lặp sự kiện của Dart quản lý **hai hàng đợi riêng biệt**
 
 ## 3. Câu Đố Phân Tích Thứ Tự Chạy (Execution Order Puzzle)
 
-Một câu hỏi kinh điển trong phỏng vấn Senior là dự đoán thứ tự in log của đoạn mã sau:
+Một bài toán kinh điển để kiểm tra tư duy luồng của kỹ sư Senior là dự đoán thứ tự in log của đoạn mã sau:
 
 ```dart
 import 'dart:async';
@@ -273,7 +273,7 @@ void _backgroundWorker(RootIsolateToken token) async {
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: `async` và `await` có làm cho code chạy trên một luồng khác (multi-threading) không?
 > **Trả lời xuất sắc**:  

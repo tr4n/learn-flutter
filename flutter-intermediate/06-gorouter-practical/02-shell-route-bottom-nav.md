@@ -229,7 +229,7 @@ GoRouter(routes: [
 3. Profile tab: user info → tap Settings → SettingsScreen (fullscreen — không có bottom nav)
 4. Checkout từ Cart tab → fullscreen (ngoài shell)
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"ShellRoute vs StatefulShellRoute?"**
    - ShellRoute: single navigator cho tất cả tabs — simple

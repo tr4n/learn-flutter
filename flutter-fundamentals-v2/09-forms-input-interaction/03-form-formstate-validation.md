@@ -317,7 +317,7 @@ Future<void> _submit() async {
 - Giữ data giữa steps trong parent State
 - "Confirm Password" validation: so sánh với Password field
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

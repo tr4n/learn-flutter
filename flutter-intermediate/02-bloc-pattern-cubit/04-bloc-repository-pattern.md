@@ -311,7 +311,7 @@ Future<void> _onLoad(_, emit) async {
 4. Các screen khác dùng `context.read<AuthBloc>()` để trigger login/logout
 5. `BlocListener` ở app level: khi `AuthUnauthenticated` → navigate to LoginScreen
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"RepositoryProvider vs BlocProvider — khác nhau gì?"**
    - `RepositoryProvider`: inject data/service layer (Repository, ApiService)

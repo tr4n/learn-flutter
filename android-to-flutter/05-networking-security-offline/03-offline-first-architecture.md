@@ -141,7 +141,7 @@ Khi người dùng sửa bài viết trên Điện thoại (Offline), đồng th
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao trong kiến trúc Offline-First, phương thức Repository trả về dữ liệu nên là `Stream<List<Data>>` thay vì `Future<List<Data>>`?
 > **Trả lời xuất sắc**:  

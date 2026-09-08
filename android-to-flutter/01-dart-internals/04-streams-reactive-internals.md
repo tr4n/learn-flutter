@@ -30,7 +30,7 @@ graph LR
 
 ## 2. Single-Subscription Stream vs Broadcast Stream
 
-Một câu hỏi kinh điển để đánh giá độ hiểu sâu của ứng viên là phân biệt hai loại Stream này:
+Một chủ đề quan trọng để đánh giá độ hiểu sâu của kỹ sư là phân biệt bản chất hai loại Stream này:
 
 | Tiêu Chí | Single-Subscription Stream | Broadcast Stream |
 | :--- | :--- | :--- |
@@ -57,7 +57,7 @@ Khi **Tốc độ sản sinh dữ liệu (Producer Rate)** nhanh hơn rất nhi�
 
 ## 4. Tự Xây Dựng Custom `StreamTransformer` (Debounce & Throttle)
 
-Tại vòng Live-coding Senior, nhà tuyển dụng thường yêu cầu bạn viết một `StreamTransformer` thủ công mà **không dùng thư viện ngoài (như rxdart)** để kiểm tra tư duy Streams và Timer:
+Ở cấp độ Senior, bạn thường cần phải tự thiết kế một `StreamTransformer` thủ công mà **không dùng thư viện ngoài (như rxdart)** để kiểm soát luồng phản ứng (reactive stream) và Timer:
 
 ### 4.1. Tự Viết `debounce` Transformer
 
@@ -188,7 +188,7 @@ Khi làm việc với các hệ thống phức tạp, RxDart bổ sung các Subj
 
 ---
 
-## 7. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 7. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Điều gì sẽ xảy ra nếu một Stream Controller phát sinh lỗi (Error Event) nhưng listener không định nghĩa callback `onError`?
 > **Trả lời xuất sắc**:  

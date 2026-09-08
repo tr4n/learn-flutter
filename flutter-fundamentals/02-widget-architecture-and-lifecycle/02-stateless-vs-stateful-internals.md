@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 02: StatelessWidget vs StatefulWidget & Nơi Lưu Trữ State
 
-> **Trọng tâm**: Phân biệt bản chất `StatelessWidget` và `StatefulWidget`, Giải mã câu hỏi lớn: "Nếu Widget liên tục bị tạo mới thì đối tượng State được lưu ở đâu?", Cơ chế đánh dấu cờ bẩn (`markNeedsBuild`), và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Phân biệt bản chất `StatelessWidget` và `StatefulWidget`, Giải mã câu hỏi lớn: "Nếu Widget liên tục bị tạo mới thì đối tượng State được lưu ở đâu?", Cơ chế đánh dấu cờ bẩn (`markNeedsBuild`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -113,7 +113,7 @@ flowchart TD
 
 ---
 
-## 🎯 4. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 4. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Giải thích tại sao `StatefulWidget` là một class bất biến (`@immutable`) nhưng lại có thể chứa được dữ liệu biến đổi (mutable state)? Đối tượng `State` thực sự nằm ở đâu trong bộ nhớ?
 **Trả lời chuẩn 10/10**:

@@ -1,6 +1,6 @@
 # Chuyên Đề 07 - Bài 01: Điều Hướng Mệnh Lệnh (Navigator 1.0 & Chuyển Trang)
 
-> **Trọng tâm**: Cơ chế ngăn xếp LIFO (`NavigatorState`), Chuyển trang có kiểu an toàn (`Navigator.push<T>`), Quản lý lịch sử ngăn xếp với `pushAndRemoveUntil`, Tạo hoạt họa chuyển cảnh mượt mà với `PageRouteBuilder`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Cơ chế ngăn xếp LIFO (`NavigatorState`), Chuyển trang có kiểu an toàn (`Navigator.push<T>`), Quản lý lịch sử ngăn xếp với `pushAndRemoveUntil`, Tạo hoạt họa chuyển cảnh mượt mà với `PageRouteBuilder`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -119,7 +119,7 @@ Navigator.push(context, createSlideRoute(const ProductDetailScreen()));
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao trong Navigator 1.0, việc sử dụng các Route được định danh bằng chuỗi văn bản (`Navigator.pushNamed(context, '/detail')`) lại bị Google Flutter Team khuyến cáo hạn chế sử dụng trong các ứng dụng quy mô lớn?
 

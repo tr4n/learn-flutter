@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 04: Bản Chất Của BuildContext & Cách Tra Cứu Trên Cây
 
-> **Trọng tâm**: Bản chất thực sự của `BuildContext` (Chính là `Element`), Cơ chế tra cứu cây ngược lên tổ tiên (`InheritedWidget` vs `AncestorState`), Xử lý khoảng trống bất đồng bộ (Async Gaps) với `context.mounted`, Lỗi kinh điển `Scaffold.of() called with a context that does not include a Scaffold`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Bản chất thực sự của `BuildContext` (Chính là `Element`), Cơ chế tra cứu cây ngược lên tổ tiên (`InheritedWidget` vs `AncestorState`), Xử lý khoảng trống bất đồng bộ (Async Gaps) với `context.mounted`, Lỗi kinh điển `Scaffold.of() called with a context that does not include a Scaffold`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -147,7 +147,7 @@ Widget build(BuildContext context) {
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: `BuildContext` thực chất là gì trong mã nguồn lõi của Flutter SDK? Tại sao nó lại là một abstract class thay vì một concrete class?
 **Trả lời chuẩn 10/10**:

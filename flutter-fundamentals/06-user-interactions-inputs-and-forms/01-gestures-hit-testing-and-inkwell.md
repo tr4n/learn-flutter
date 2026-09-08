@@ -1,6 +1,6 @@
 # Chuyên Đề 06 - Bài 01: Cử Chỉ Người Dùng, Hit-Testing & InkWell Chuyên Sâu
 
-> **Trọng tâm**: Bản chất đấu trường cử chỉ (Gesture Arena), Giải phẫu 3 chế độ `HitTestBehavior` (`deferToChild`, `opaque`, `translucent`), Cơ chế vẽ gợn sóng nước của `InkWell` trên `MaterialInkController`, Khắc phục triệt để lỗi mất hiệu ứng Ripple, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Bản chất đấu trường cử chỉ (Gesture Arena), Giải phẫu 3 chế độ `HitTestBehavior` (`deferToChild`, `opaque`, `translucent`), Cơ chế vẽ gợn sóng nước của `InkWell` trên `MaterialInkController`, Khắc phục triệt để lỗi mất hiệu ứng Ripple, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -146,7 +146,7 @@ Material(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy giải thích chi tiết cơ chế hoạt động của Đấu trường cử chỉ (Gesture Arena) trong Flutter. Làm thế nào Flutter phân định người thắng cuộc khi xảy ra xung đột giữa thao tác cuộn (`ListView`) và thao tác vuốt ngang (`Dismissible`)?
 

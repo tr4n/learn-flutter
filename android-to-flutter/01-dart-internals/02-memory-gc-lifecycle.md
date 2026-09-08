@@ -185,7 +185,7 @@ class ImageMemoryCache {
 
 ## 5. Quy Trình 4 Bước Phân Tích Memory Leak Bằng DevTools
 
-Khi phỏng vấn, nhà tuyển dụng rất thích nghe ứng viên trình bày **quy trình thực tế** để bắt rò rỉ bộ nhớ:
+Trong đánh giá kỹ thuật chuyên nghiệp, tiêu chuẩn vàng là trình bày **quy trình thực tế** để bắt rò rỉ bộ nhớ:
 
 ```mermaid
 graph LR
@@ -208,7 +208,7 @@ graph LR
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao Flutter liên tục tạo mới hàng nghìn Widget trong hàm `build()` mỗi khi có thay đổi nhỏ nhưng giao diện vẫn mượt mà 60/120 FPS?
 > **Trả lời xuất sắc**:  

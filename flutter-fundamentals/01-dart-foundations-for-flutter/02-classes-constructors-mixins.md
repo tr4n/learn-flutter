@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 02: Classes, Constructors, Mixins & Callable Classes
 
-> **Trọng tâm**: Bản chất của `const constructor` (Canonicalization), Named & Factory Constructors, Initializer List, Mixins trong Flutter, Callable Classes (`call()`), Typedefs, Class Modifiers mới trong Dart 3, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Bản chất của `const constructor` (Canonicalization), Named & Factory Constructors, Initializer List, Mixins trong Flutter, Callable Classes (`call()`), Typedefs, Class Modifiers mới trong Dart 3, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -229,7 +229,7 @@ mixin LifecycleLoggerMixin<T extends StatefulWidget> on State<T> {
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Cơ chế Canonicalization của `const constructor` hoạt động như thế nào? Tại sao nó giúp tăng FPS của ứng dụng Flutter?
 **Trả lời chuẩn 10/10**:

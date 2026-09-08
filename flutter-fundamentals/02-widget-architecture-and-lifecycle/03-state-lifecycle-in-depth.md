@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 03: Vòng Đời Chi Tiết Của State (The State Lifecycle)
 
-> **Trọng tâm**: Trình tự thực thi chuẩn xác của 7 mốc vòng đời State, Trách nhiệm và điều cấm kỵ tại mỗi mốc, Lắng nghe tham số đổi từ cha bằng `didUpdateWidget`, Lắng nghe vòng đời hệ điều hành với `WidgetsBindingObserver`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Trình tự thực thi chuẩn xác của 7 mốc vòng đời State, Trách nhiệm và điều cấm kỵ tại mỗi mốc, Lắng nghe tham số đổi từ cha bằng `didUpdateWidget`, Lắng nghe vòng đời hệ điều hành với `WidgetsBindingObserver`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -165,7 +165,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
 ---
 
-## 🎯 4. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 4. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao không được phép gọi `Theme.of(context)` hay `MediaQuery.of(context)` trong `initState()` nhưng lại hoàn toàn an toàn khi gọi trong `didChangeDependencies()`?
 **Trả lời chuẩn 10/10**:

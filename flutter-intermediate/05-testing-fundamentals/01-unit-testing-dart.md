@@ -301,7 +301,7 @@ setUp(() {
 3. Test `toggleFavorite()`: API fail → throw `NetworkFailure`
 4. Coverage >= 90% cho `product_repository_impl.dart`
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"AAA pattern là gì?"**
    - Arrange: Setup, Mocks

@@ -1,6 +1,6 @@
 # Chuyên Đề 04 - Bài 04: CustomScrollView & Nghệ Thuật Hiệu Ứng Slivers Chuyên Sâu
 
-> **Trọng tâm**: Giao thức Sliver (`SliverConstraints` vs `SliverGeometry`), Bản chất của `RenderSliver` so với `RenderBox`, Làm chủ `SliverAppBar` với bộ tứ quyền năng (`pinned`, `floating`, `snap`, `stretch`), Tạo Sticky Header chuyên nghiệp với `SliverPersistentHeaderDelegate`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Giao thức Sliver (`SliverConstraints` vs `SliverGeometry`), Bản chất của `RenderSliver` so với `RenderBox`, Làm chủ `SliverAppBar` với bộ tứ quyền năng (`pinned`, `floating`, `snap`, `stretch`), Tạo Sticky Header chuyên nghiệp với `SliverPersistentHeaderDelegate`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -168,7 +168,7 @@ class AdaptiveStickyHeaderDelegate extends SliverPersistentHeaderDelegate {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt sự khác nhau căn bản giữa giao thức `RenderBox` và giao thức `RenderSliver`. Tại sao `CustomScrollView` không thể nhận trực tiếp các `Widget` thông thường mà phải bọc qua `SliverToBoxAdapter`?
 

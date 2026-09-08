@@ -103,7 +103,7 @@ Khác biệt cốt lõi: **Impeller biên dịch toàn bộ Shaders ngay tại t
 
 ## 5. Các Lệnh Debug & Kiểm Soát Impeller Trong Thực Tế
 
-Khi đi phỏng vấn hoặc giải quyết các vấn đề tương thích đồ họa trên thiết bị cũ:
+Khi tối ưu hóa hoặc giải quyết các vấn đề tương thích đồ họa trên thiết bị cũ:
 
 ```bash
 # Chạy ép buộc dùng Impeller trên Android (yêu cầu thiết bị hỗ trợ Vulkan API)
@@ -124,7 +124,7 @@ Cấu hình trong `AndroidManifest.xml` nếu muốn tắt tạm thời trên An
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Shader Compilation Jank là gì? Tại sao giải pháp SkSL Warmup trước đây không được coi là giải pháp bền vững?
 > **Trả lời xuất sắc**:  

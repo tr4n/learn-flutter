@@ -297,7 +297,7 @@ class GoodCubit extends Cubit<GoodState> {
 3. Methods: `addTodo`, `toggleTodo`, `deleteTodo`, `setFilter(all/active/done)`
 4. `BlocBuilder` chỉ rebuild list khi todos thay đổi, rebuild count khi filter thay đổi
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Cubit vs ChangeNotifier — khi nào dùng Cubit?"**
    - Cubit: cần test, cần stream, cần BlocObserver (logging, analytics)

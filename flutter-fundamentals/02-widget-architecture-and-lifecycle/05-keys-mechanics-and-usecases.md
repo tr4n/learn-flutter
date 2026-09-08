@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 05: Cơ Chế Của Keys & Các Trường Hợp Bắt Buộc Sử Dụng
 
-> **Trọng tâm**: Bản chất của `Key` trong thuật toán Diffing, Lỗi mất đồng bộ State kinh điển khi xóa hoặc đổi chỗ phần tử trong danh sách, Phân cấp `LocalKey` vs `GlobalKey`, Kỹ thuật đo tọa độ màn hình với `GlobalKey`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Bản chất của `Key` trong thuật toán Diffing, Lỗi mất đồng bộ State kinh điển khi xóa hoặc đổi chỗ phần tử trong danh sách, Phân cấp `LocalKey` vs `GlobalKey`, Kỹ thuật đo tọa độ màn hình với `GlobalKey`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -128,7 +128,7 @@ class TargetButtonWithPosition extends StatelessWidget {
 
 ---
 
-## 🎯 6. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 6. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc xóa một item trong danh sách các StatefulWidget không có `Key` lại dẫn đến việc item còn lại giữ nhầm State của item vừa bị xóa?
 **Trả lời chuẩn 10/10**:

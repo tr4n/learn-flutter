@@ -301,7 +301,7 @@ on<EventC>(_onEventC);
 4. `Refresh`: reset về page 1, emit loading rồi loaded
 5. Error không xóa list cũ — chỉ hiện snackbar
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"BLoC vs Cubit — kiến trúc nào bạn ưu tiên và tại sao?"**
    - BLoC khi cần event transformation, audit trail, phức tạp

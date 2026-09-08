@@ -448,7 +448,7 @@ void main() async {
 
 **Đáp án:** `1, 3, 4, 5, 2, 6` — hãy giải thích từng bước trước khi xem.
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

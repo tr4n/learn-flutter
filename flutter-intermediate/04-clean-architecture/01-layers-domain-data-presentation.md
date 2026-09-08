@@ -319,7 +319,7 @@ lib/features/
 4. DTO `ProductModel` với `fromJson` và `toEntity()`
 5. Không cần implement, chỉ cần đúng structure và types
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Feature-first vs Layer-first — bạn chọn cái nào và tại sao?"**
    - Feature-first: better for team, less merge conflicts, easier to reason about bounded context

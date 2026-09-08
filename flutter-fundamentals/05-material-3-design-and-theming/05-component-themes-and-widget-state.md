@@ -1,6 +1,6 @@
 # Chuyên Đề 05 - Bài 05: Tùy Biến Giao Diện Linh Kiện & Làm Chủ WidgetStateProperty
 
-> **Trọng tâm**: Chuẩn hóa Design System toàn cục với Component Themes trong `ThemeData` (`elevatedButtonTheme`, `inputDecorationTheme`, `cardTheme`), Làm chủ `WidgetStateProperty` (thay thế cho `MaterialStateProperty`), Xử lý các trạng thái tương tác đa tầng (`pressed`, `hovered`, `focused`, `disabled`), và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Chuẩn hóa Design System toàn cục với Component Themes trong `ThemeData` (`elevatedButtonTheme`, `inputDecorationTheme`, `cardTheme`), Làm chủ `WidgetStateProperty` (thay thế cho `MaterialStateProperty`), Xử lý các trạng thái tương tác đa tầng (`pressed`, `hovered`, `focused`, `disabled`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -171,7 +171,7 @@ final appInputTheme = InputDecorationTheme(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Flutter lại thay thế các thuộc tính màu tĩnh đơn lẻ (như `primaryColor`, `disabledColor`, `highlightColor`) trong `ThemeData` bằng cơ chế `WidgetStateProperty`? Cơ chế `resolveWith((Set<WidgetState> states))` hoạt động như thế nào?
 

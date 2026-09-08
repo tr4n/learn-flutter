@@ -134,7 +134,7 @@ Khi giao diện bị lag trong quá trình cuộn danh sách (Janky Scrolling), 
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Bạn hãy phân biệt sự khác nhau giữa `Track Widget Rebuilds` và `Highlight Repaints` trong Flutter Inspector?
 > **Trả lời xuất sắc**:  

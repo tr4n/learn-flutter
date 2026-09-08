@@ -171,7 +171,7 @@ graph TD
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Khi nào bạn nên chọn `Platform Channels` và khi nào nên chọn `Dart FFI`?
 > **Trả lời xuất sắc**:  

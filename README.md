@@ -1,7 +1,7 @@
-# Cẩm Nang Luyện Thi Phỏng Vấn Flutter Toàn Diện (Junior $\rightarrow$ Middle $\rightarrow$ Senior)
+# Cẩm Nang Kiến Trúc & Khung Năng Lực Kỹ Sư Flutter Toàn Diện (Junior $\rightarrow$ Middle $\rightarrow$ Senior)
 ### 🚀 Đặc Biệt: Kèm Cầu Nối Chuyển Đổi Nhanh Cho Lập Trình Viên Android Native
 
-> **Mục tiêu**: Cung cấp một lộ trình ôn tập hoàn chỉnh, từ các kiến thức nền tảng căn bản (Base/Junior), kỹ thuật thực chiến và kiến trúc dự án (Middle), cho đến cơ chế tầng sâu dưới lõi framework (Under-the-hood) và thiết kế hệ thống mobile (Senior / Lead).  
+> **Mục tiêu**: Cung cấp một lộ trình làm chủ kiến trúc hoàn chỉnh, từ các kiến thức nền tảng căn bản (Base/Junior), kỹ thuật thực chiến và kiến trúc dự án (Middle), cho đến cơ chế tầng sâu dưới lõi framework (Under-the-hood) và thiết kế hệ thống mobile (Senior / Lead).  
 > **Dành riêng cho Android Developers**: Khai thác tối đa kiến thức sẵn có về Java/Kotlin, Android Lifecycle, Jetpack Compose, XML và Gradle để học Flutter nhanh gấp 3 lần!
 
 ---
@@ -70,9 +70,9 @@ learn-flutter/
 │   ├── 02-design-offline-chat-app.md        # Case study: Hệ thống Chat thời gian thực + Offline Queue
 │   └── 03-design-infinite-feed-cache.md     # Case study: Bảng tin cuộn vô tận với Cache 3 tầng & Video Pool
 │
-└── 08-interview-questions-bank/             # Ngân Hàng Câu Hỏi Phỏng Vấn & Live Coding
-    ├── 01-senior-deep-dive-qa.md            # Bộ câu hỏi phỏng vấn phân loại 3 Cấp Độ (Junior -> Mid -> Senior)
-    ├── 02-live-coding-challenges.md         # 5 bài toán Live Coding kinh điển (LRU Cache $O(1)$, Custom RenderBox...)
+└── 08-technical-competency-and-assessment/  # Thẩm Định Năng Lực Kỹ Thuật & Thử Thách Thuật Toán
+    ├── 01-senior-deep-dive-qa.md            # Bộ câu hỏi thẩm định kỹ thuật 3 Cấp Độ (Junior -> Mid -> Senior)
+    ├── 02-live-coding-challenges.md         # 5 bài toán thuật toán & live coding kinh điển (LRU Cache $O(1)$, Custom RenderBox...)
     └── 03-behavioral-and-leadership.md      # Kỹ năng lãnh đạo kỹ thuật theo phương pháp STAR
 ```
 
@@ -123,7 +123,7 @@ graph TD
         L3_1["Học Module 01 & 02: Event Loop, Isolates, 3 Trees, Impeller"]
         L3_2["Học Module 04: Bắt Memory Leaks qua Retaining Path, DevTools Profiler"]
         L3_3["Học Module 07: Mobile System Design (Chat App, Infinite Feed)"]
-        L3_4["Học Module 08: Luyện 5 bài Live Coding & Câu hỏi tình huống STAR"]
+        L3_4["Học Module 08: 5 bài toán Live Coding & Xử lý tình huống kỹ thuật STAR"]
     end
 
     Level1 --> Level2 --> Level3

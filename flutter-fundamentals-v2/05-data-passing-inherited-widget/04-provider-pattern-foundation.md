@@ -327,7 +327,7 @@ Selector<Cart, (int, double)>(
 5. Thay `CartProvider.of(context)` trong callbacks bằng `context.read<ShoppingCart>()`
 6. Tối ưu badge với `Selector<ShoppingCart, int>` (chỉ rebuild theo itemCount)
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

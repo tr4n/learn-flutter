@@ -165,7 +165,7 @@ Mọi chapter trong tập này đều tuân thủ cấu trúc 5 phần sau:
 
 ## Phần 5 — Bài Tập Củng Cố Tư Duy
   Challenge cụ thể, có hướng giải (không cho đáp án ngay).
-  Câu hỏi phỏng vấn liên quan.
+  Thử thách thẩm định kỹ thuật liên quan.
 ```
 
 ---

@@ -1,6 +1,6 @@
 # Chuyên Đề 06 - Bài 05: Bộ Lọc Dữ Liệu TextInputFormatter & Xây Dựng Custom FormField
 
-> **Trọng tâm**: Cơ chế tiền xử lý chuỗi nhập liệu với `TextInputFormatter`, Viết Custom Masking Formatter (Số điện thoại, Thẻ ngân hàng, Tiền tệ VND), Kỹ thuật điều khiển con trỏ văn bản trong Formatter, Xây dựng `CustomFormField<T>` cho các thành phần phi văn bản (Chọn ảnh, Đánh giá sao, Dropdown Chips), và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Cơ chế tiền xử lý chuỗi nhập liệu với `TextInputFormatter`, Viết Custom Masking Formatter (Số điện thoại, Thẻ ngân hàng, Tiền tệ VND), Kỹ thuật điều khiển con trỏ văn bản trong Formatter, Xây dựng `CustomFormField<T>` cho các thành phần phi văn bản (Chọn ảnh, Đánh giá sao, Dropdown Chips), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -191,7 +191,7 @@ Form(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân tích cơ chế hoạt động của `TextInputFormatter` trong Flutter. Phương thức `formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue)` nhận vào hai đối tượng này để làm gì? Làm thế nào để giữ đúng vị trí con trỏ khi tự động chèn thêm ký tự?
 

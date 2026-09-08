@@ -1,6 +1,6 @@
 # Chuyên Đề 07 - Bài 04: Deep Linking (App Links / Universal Links) & Xử Lý URL Web
 
-> **Trọng tâm**: Bản chất của Deep Linking, So sánh Custom URL Scheme vs App Links (Android) & Universal Links (iOS), Cạm bẫy truyền dữ liệu qua tham số `extra` trong GoRouter, Tối ưu URL Web với `usePathUrlStrategy()`, Cấu hình máy chủ chống lỗi 404, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Bản chất của Deep Linking, So sánh Custom URL Scheme vs App Links (Android) & Universal Links (iOS), Cạm bẫy truyền dữ liệu qua tham số `extra` trong GoRouter, Tối ưu URL Web với `usePathUrlStrategy()`, Cấu hình máy chủ chống lỗi 404, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -151,7 +151,7 @@ xcrun simctl openurl booted "https://yourdomain.com/products/105"
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt Custom URL Scheme (`myapp://...`) và App Links (Android) / Universal Links (iOS). Tại sao các ứng dụng tài chính và thương mại điện tử hiện đại bắt buộc phải dùng App Links / Universal Links?
 

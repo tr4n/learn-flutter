@@ -51,7 +51,7 @@ graph TD
 
 ## 2. So Sánh: Feature-First vs Layer-First
 
-Một tranh luận phổ biến trong các buổi phỏng vấn kiến trúc:
+Một tranh luận phổ biến khi thiết kế và review kiến trúc:
 
 | Tiêu Chí | Layer-First (Theo tầng) | Feature-First (Theo tính năng - Khuyến nghị Senior) |
 | :--- | :--- | :--- |
@@ -172,7 +172,7 @@ class CheckoutOrderUseCase {
 
 ---
 
-## 5. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 5. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao tầng Domain trong Clean Architecture tuyệt đối không nên import thư viện Flutter SDK?
 > **Trả lời xuất sắc**:  

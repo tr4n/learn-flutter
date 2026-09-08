@@ -222,7 +222,7 @@ final productDetailProvider = AsyncNotifierProvider.autoDispose.family<...>(...)
 4. `commentCountProvider = Provider.autoDispose.family<int, String>` — computed từ news detail
 5. Widget chỉ rebuild khi commentCount thay đổi (không phải toàn bộ article)
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"autoDispose vs không autoDispose — khi nào dùng cái nào?"**
    - autoDispose: detail screens, search results, user-specific data

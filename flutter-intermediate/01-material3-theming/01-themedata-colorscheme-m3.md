@@ -330,7 +330,7 @@ ThemeData(
 - `AppBarTheme(backgroundColor: colorScheme.surface, foregroundColor: colorScheme.onSurface)`
 - `FloatingActionButtonThemeData(backgroundColor: colorScheme.tertiaryContainer)`
 
-### Câu hỏi phỏng vấn liên quan:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"ColorScheme.fromSeed vs ColorScheme.fromSwatch khác nhau như thế nào?"**
    - `fromSeed`: M3 algorithm, sinh toàn bộ palette từ seed — recommended

@@ -10,7 +10,7 @@
 FlutterError: This widget's context was used after the widget was disposed.
 ```
 
-Và câu hỏi phỏng vấn kinh điển: *"BuildContext là gì?"* — 90% developer trả lời "là handle để tìm widget cha/con". Câu trả lời đúng sâu hơn nhiều: **`BuildContext` chính là `Element`** — và hiểu điều này thay đổi hoàn toàn cách bạn debug crash, dùng Provider, và tránh async pitfalls.
+Và một câu hỏi bản chất kinh điển: *"BuildContext là gì?"* — 90% developer trả lời "là handle để tìm widget cha/con". Câu trả lời đúng sâu hơn nhiều: **`BuildContext` chính là `Element`** — và hiểu điều này thay đổi hoàn toàn cách bạn debug crash, dùng Provider, và tránh async pitfalls.
 
 ### 1.2 — Vấn Đề Cốt Lõi: "Widget Là Blueprint, Nhưng Ai Biết Nó Đang Ở Đâu?"
 
@@ -437,7 +437,7 @@ class _ProductListState extends State<ProductListScreen> {
 2. Sửa như thế nào với `mounted` check?
 3. Có cách nào tránh vấn đề này mà không cần check `mounted` không?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

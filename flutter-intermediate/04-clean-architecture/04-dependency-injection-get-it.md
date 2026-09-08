@@ -257,7 +257,7 @@ BlocProvider(
 5. Đăng ký toàn bộ vào `injection.dart` đúng thứ tự
 6. `ProfileScreen` dùng `BlocProvider(create: (_) => sl<ProfileCubit>())`
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"get_it vs Riverpod/Provider cho DI?"**
    - get_it: service locator pattern, imperative, simple — không reactive

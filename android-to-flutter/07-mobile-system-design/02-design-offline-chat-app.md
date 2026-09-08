@@ -1,7 +1,7 @@
 # Mobile System Design: Thiết Kế Ứng Dụng Chat Thời Gian Thực Có Hỗ Trợ Offline
 
 > **Cấp độ**: Senior / Lead Mobile Engineer  
-> **Đề bài phỏng vấn**: *"Hãy thiết kế kiến trúc cho ứng dụng nhắn tin tức thời kiểu Telegram/WhatsApp có hỗ trợ hoạt động ngoại tuyến (Offline-First) trên Flutter."*
+> **Bài toán thiết kế thực tế (Real-world Architecture Problem)**: *"Hãy thiết kế kiến trúc cho ứng dụng nhắn tin tức thời kiểu Telegram/WhatsApp có hỗ trợ hoạt động ngoại tuyến (Offline-First) trên Flutter."*
 
 ---
 
@@ -152,7 +152,7 @@ Tuyệt đối không gửi dữ liệu ảnh nhị phân (Binary Base64) trực
 
 ---
 
-## 7. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 7. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Khi người dùng cuộn ngược lên trên để xem lịch sử tin nhắn cũ (Bi-directional Pagination), làm sao bạn đảm bảo danh sách không bị nhảy vị trí cuộn (Scroll Jump) và không bị lag?
 > **Trả lời xuất sắc**:  

@@ -311,7 +311,7 @@ abstract interface class ProductRepository {
 4. `OrderRepository` interface với: `getOrders`, `getOrderById`, `cancelOrder`
 5. Sealed class `OrderFailure` với 3 subclasses
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Tại sao cần tách Entity và DTO khi chúng giống nhau?"**
    - Lúc đầu có thể giống — theo thời gian diverge

@@ -293,7 +293,7 @@ class GetProductUseCase {
 4. Tất cả UseCase không import Flutter
 5. BLoC sử dụng 3 UseCases trên
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Khi nào thì tạo UseCase, khi nào để BLoC gọi thẳng Repository?"**
    - Tạo UseCase: orchestrate > 1 repository, có business validation, cần test riêng

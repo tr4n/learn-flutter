@@ -625,7 +625,7 @@ class _ColoredCounterState extends State<ColoredCounter> {
 
 **Gợi ý:** Nhớ quy tắc `canUpdate()` — Element được reuse theo *vị trí* khi không có Key.
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

@@ -1,14 +1,14 @@
-# Kỹ Năng Lãnh Đạo Kỹ Thuật & Trả Lời Câu Hỏi Tình Huống (Behavioral / Leadership)
+# Kỹ Năng Lãnh Đạo Kỹ Thuật & Xử Lý Tình Huống Dự Án (Engineering Leadership & Trade-offs)
 
 > **Cấp độ**: Senior / Lead Mobile Engineer  
 > **Chủ đề**: Phương pháp STAR (Situation, Task, Action, Result), Quản trị nợ kỹ thuật (Technical Debt), Dẫn dắt chuyển đổi kiến trúc (Migration), Văn hóa Code Review và Giải quyết xung đột kỹ thuật.
 
 ---
 
-## 1. Phương Pháp STAR Trong Phỏng Vấn Senior
+## 1. Phương Pháp STAR Trong Báo Cáo Kỹ Thuật & Xử Lý Tình Huống
 
-Các công ty công nghệ lớn (Google, Grab, Shopee, Techcombank, các kỳ lân Fintech) luôn dành riêng một vòng phỏng vấn về **Văn hóa & Kỹ năng lãnh đạo kỹ thuật**.  
-Tuyệt đối không trả lời chung chung hoặc lý thuyết suông. Luôn trả lời theo cấu trúc **STAR**:
+Trong các tổ chức công nghệ quy mô lớn theo chuẩn Enterprise, kỹ sư cấp Senior/Lead luôn cần giải quyết vấn đề và báo cáo kết quả theo cấu trúc tư duy **STAR**.  
+Tuyệt đối không giải trình chung chung hoặc lý thuyết suông. Luôn tư duy theo mô hình **STAR**:
 
 ```mermaid
 graph LR
@@ -19,7 +19,7 @@ graph LR
 
 ---
 
-## 2. Top 5 Tình Huống Kinh Điển & Câu Trả Lời Mẫu
+## 2. Top 5 Tình Huống Kinh Điển & Hướng Xử Lý Chuẩn Mực
 
 ### Tình Huống 1: "Bạn xử lý Nợ Kỹ Thuật (Technical Debt) như thế nào khi Product Manager (PO) liên tục ép Deadline tính năng mới?"
 - **Cách tư duy của Senior**: Không đối đầu với Business, mà biến Technical Debt thành **ngôn ngữ kinh doanh và rủi ro tài chính**.

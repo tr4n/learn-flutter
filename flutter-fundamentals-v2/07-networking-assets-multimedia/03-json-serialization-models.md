@@ -427,7 +427,7 @@ Widget build(BuildContext context) {
 - Cache posts vào SharedPreferences
 - Implement offline-first: hiển thị cache trước, load fresh sau
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

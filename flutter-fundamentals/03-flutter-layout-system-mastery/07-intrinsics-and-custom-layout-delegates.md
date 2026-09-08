@@ -194,7 +194,7 @@ class CustomProfileWidget extends StatelessWidget {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Flutter lại cảnh báo `IntrinsicHeight` và `IntrinsicWidth` có độ phức tạp thuật toán $O(N^2)$ trong trường hợp xấu nhất? Bản chất của "Speculative Layout Pass" là gì?
 

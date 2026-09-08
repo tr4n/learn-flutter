@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 04: Collections & Các Toán Tử UI Trong Dart
 
-> **Trọng tâm**: Collection if, Collection for, Spread operator (`...`), Null-aware spread (`...?`), Các phương thức hàm học (`map`, `where`, `fold`, `expand`), Lazy Evaluation của Iterable, Danh sách bất biến (`List.unmodifiable`), và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Collection if, Collection for, Spread operator (`...`), Null-aware spread (`...?`), Các phương thức hàm học (`map`, `where`, `fold`, `expand`), Lazy Evaluation của Iterable, Danh sách bất biến (`List.unmodifiable`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -127,7 +127,7 @@ class CartState {
 
 ---
 
-## 🎯 4. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 4. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Sự khác biệt bản chất về cơ chế thực thi và hiệu năng giữa `[for (var x in list) Widget(x)]` và `list.map((x) => Widget(x)).toList()`?
 **Trả lời chuẩn 10/10**:

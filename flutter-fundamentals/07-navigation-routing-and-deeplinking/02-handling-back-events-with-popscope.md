@@ -1,6 +1,6 @@
 # Chuyên Đề 07 - Bài 02: Làm Chủ Nút Back Với PopScope (Thay Thế WillPopScope)
 
-> **Trọng tâm**: Tại sao `WillPopScope` bị khai tử, Cơ chế cử chỉ quay lại dự đoán (Predictive Back Gesture) của Android 14+, Làm chủ API mới `PopScope` (`canPop`, `onPopInvokedWithResult`), Mẫu thiết kế "Nhấn Back lần nữa để thoát", và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Tại sao `WillPopScope` bị khai tử, Cơ chế cử chỉ quay lại dự đoán (Predictive Back Gesture) của Android 14+, Làm chủ API mới `PopScope` (`canPop`, `onPopInvokedWithResult`), Mẫu thiết kế "Nhấn Back lần nữa để thoát", và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -170,7 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Google lại khai tử `WillPopScope` từ Flutter 3.12+ và thay thế hoàn toàn bằng `PopScope`? Cơ chế Predictive Back Gesture của Android 14+ ảnh hưởng như thế nào đến quyết định kiến trúc này?
 

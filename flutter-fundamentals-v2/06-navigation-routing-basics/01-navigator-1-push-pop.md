@@ -319,7 +319,7 @@ PopScope(
 3. `HomeScreen` có logout button → `LoginScreen` (pushAndRemoveUntil)
 4. Form chỉnh sửa profile có `PopScope` ngăn back nếu có thay đổi chưa lưu
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

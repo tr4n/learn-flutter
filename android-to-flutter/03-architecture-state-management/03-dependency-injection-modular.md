@@ -154,7 +154,7 @@ graph TD
 
 ---
 
-## 5. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 5. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao việc sử dụng Service Locator (như gọi `GetIt.I<T>()` trực tiếp trong Widget hoặc Repository) lại bị coi là làm suy giảm khả năng Unit Test?
 > **Trả lời xuất sắc**:  

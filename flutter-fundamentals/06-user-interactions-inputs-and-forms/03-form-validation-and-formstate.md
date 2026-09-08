@@ -1,6 +1,6 @@
 # Chuyên Đề 06 - Bài 03: Xác Thực Biểu Mẫu Với Form & TextFormField Chuyên Sâu
 
-> **Trọng tâm**: Kiến trúc nội bộ của `Form` (`_FormScope` & `InheritedWidget`), Cơ chế đăng ký tự động của `FormFieldState`, Tối ưu UX với các chế độ `AutovalidateMode`, Giải pháp chuẩn cho bài toán kiểm tra bất đồng bộ (Async Validation qua API), và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Kiến trúc nội bộ của `Form` (`_FormScope` & `InheritedWidget`), Cơ chế đăng ký tự động của `FormFieldState`, Tối ưu UX với các chế độ `AutovalidateMode`, Giải pháp chuẩn cho bài toán kiểm tra bất đồng bộ (Async Validation qua API), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -150,7 +150,7 @@ class _AsyncValidationScreenState extends State<AsyncValidationScreen> {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy giải thích cơ chế nội bộ mà widget `Form` quản lý các `TextFormField` con cháu bên dưới. Tại sao `_formKey.currentState!.validate()` lại có thể kích hoạt hàm kiểm tra của từng trường dù chúng nằm ở các tầng sâu trong cây widget?
 

@@ -1,6 +1,6 @@
 # Chuyên Đề 08 - Bài 02: Quản Lý Trạng Thái Tinh Gọn Với ValueNotifier & ListenableBuilder
 
-> **Trọng tâm**: Phả hệ kiến trúc `Listenable` $\rightarrow$ `ChangeNotifier` $\rightarrow$ `ValueNotifier<T>`, Cạm bẫy toán tử bằng (`==`) khi biến đổi Collection trong `ValueNotifier`, Khai thác triệt để tham số `child` chống rebuild cây tĩnh, Sự ra đời của `ListenableBuilder` (Flutter 3.10+), và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Phả hệ kiến trúc `Listenable` $\rightarrow$ `ChangeNotifier` $\rightarrow$ `ValueNotifier<T>`, Cạm bẫy toán tử bằng (`==`) khi biến đổi Collection trong `ValueNotifier`, Khai thác triệt để tham số `child` chống rebuild cây tĩnh, Sự ra đời của `ListenableBuilder` (Flutter 3.10+), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -156,7 +156,7 @@ class ProfileHeader extends StatelessWidget {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân tích cơ chế kiểm tra tính bằng nhau (`_value == newValue`) trong setter của `ValueNotifier<T>`. Tại sao đoạn code `myListNotifier.value.add(item); myListNotifier.value = myListNotifier.value;` lại KHÔNG kích hoạt việc vẽ lại giao diện? Cách khắc phục chuẩn mực là gì?
 

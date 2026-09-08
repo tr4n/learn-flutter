@@ -349,7 +349,7 @@ flightShuttleBuilder: (_, animation, ___, ____, _____) {
 - Tag Hero phải dynamic theo ảnh hiện tại trong PageView
 - Khi swipe sang ảnh khác, tag thay đổi → back về ảnh nào đang xem
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

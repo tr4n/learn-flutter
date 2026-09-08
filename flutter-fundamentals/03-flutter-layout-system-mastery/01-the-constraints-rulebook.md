@@ -1,6 +1,6 @@
 # Chuyên Đề 03 - Bài 01: Quy Tắc Vàng Layout: "Constraints Go Down, Sizes Go Up"
 
-> **Trọng tâm**: Định luật bố cục bất biến số 1 của Flutter, Thuật toán Single-Pass Layout $O(N)$ (tại sao Flutter không bao giờ bị nghẽn đo đạc như Android/iOS), Cơ chế đàm phán kích thước 3 bước, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Định luật bố cục bất biến số 1 của Flutter, Thuật toán Single-Pass Layout $O(N)$ (tại sao Flutter không bao giờ bị nghẽn đo đạc như Android/iOS), Cơ chế đàm phán kích thước 3 bước, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -73,7 +73,7 @@ Widget con **hoàn toàn không thể tự đặt tọa độ (x, y) của nó**
 
 ---
 
-## 4. Câu Đố Kinh Điển Về Layout Trong Phỏng Vấn
+## 4. Thử Thách Kinh Điển Về Cơ Chế Layout
 
 Hãy xem đoạn code sau và dự đoán: **Khối Container màu đỏ sẽ có kích thước bao nhiêu?**
 
@@ -115,7 +115,7 @@ runApp(
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Giải thích tại sao thuật toán Layout của Flutter luôn đạt độ phức tạp thời gian tuyến tính $O(N)$ (Single-Pass Layout)? So sánh với cơ chế đo đạc đa lượt (Multi-pass) của Android XML hoặc iOS AutoLayout.
 **Trả lời chuẩn 10/10**:

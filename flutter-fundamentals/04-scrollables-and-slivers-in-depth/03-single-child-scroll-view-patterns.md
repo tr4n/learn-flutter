@@ -1,6 +1,6 @@
 # Chuyên Đề 04 - Bài 03: SingleChildScrollView & Mẫu Thiết Kế Form Cuộn Toàn Trang
 
-> **Trọng tâm**: Bản chất phi ảo hóa (Non-virtualized) của `SingleChildScrollView`, Giải mã toán học bộ ba quyền lực `LayoutBuilder` + `ConstrainedBox` + `IntrinsicHeight` để giải quyết bài toán "Ghim nút bấm đáy màn hình", Tự động cuộn ô input lên tầm nhìn với `Scrollable.ensureVisible()`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Bản chất phi ảo hóa (Non-virtualized) của `SingleChildScrollView`, Giải mã toán học bộ ba quyền lực `LayoutBuilder` + `ConstrainedBox` + `IntrinsicHeight` để giải quyết bài toán "Ghim nút bấm đáy màn hình", Tự động cuộn ô input lên tầm nhìn với `Scrollable.ensureVisible()`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -172,7 +172,7 @@ SingleChildScrollView(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc đặt `Column` chứa `Spacer()` hoặc `Expanded()` trực tiếp bên trong `SingleChildScrollView` lại làm sập ứng dụng với màn hình đỏ? Hãy phân tích chi tiết cơ chế khắc phục bằng bộ ba `LayoutBuilder` + `ConstrainedBox` + `IntrinsicHeight`.
 

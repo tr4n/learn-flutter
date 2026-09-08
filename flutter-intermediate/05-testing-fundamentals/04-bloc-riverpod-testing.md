@@ -334,7 +334,7 @@ test('should have data', () async {
 4. `blocTest` cho `CheckoutEvent`: Loading → Success, Loading → Failure
 5. Test `cartTotalProvider` với ProviderContainer (nếu dùng Riverpod)
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"blocTest vs manual test cho BLoC?"**
    - blocTest: declarative, compact, built-in expect/verify — preferred

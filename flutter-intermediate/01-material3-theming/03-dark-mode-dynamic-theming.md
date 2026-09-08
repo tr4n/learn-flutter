@@ -324,7 +324,7 @@ Text('Hello', style: TextStyle(color: Theme.of(context).colorScheme.onSurface))
 3. Preference được persist với SharedPreferences — reload app vẫn nhớ
 4. Thêm `AppSpacing` ThemeExtension và dùng trong ít nhất 3 widget
 
-### Câu hỏi phỏng vấn liên quan:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"ThemeMode.system vs ThemeMode.light/dark?"**
    - System: follow OS dark mode setting — recommended default

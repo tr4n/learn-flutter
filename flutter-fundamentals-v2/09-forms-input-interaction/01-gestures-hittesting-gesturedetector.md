@@ -300,7 +300,7 @@ Material(
 - `AnimatedContainer` hoặc `Transform.translate` để move item
 - `GestureDetector.onHorizontalDragEnd` để quyết định snap hoặc dismiss
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

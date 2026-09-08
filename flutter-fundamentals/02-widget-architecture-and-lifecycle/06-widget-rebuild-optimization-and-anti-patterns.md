@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 06: Tối Ưu Hóa Rebuild & Các Anti-Patterns Thường Gặp
 
-> **Trọng tâm**: Cuộc tranh luận kinh điển: Helper Methods (`Widget _buildItem()`) vs Widget Classes (`class Item extends StatelessWidget`), Duy trì State của Tab bằng `AutomaticKeepAliveClientMixin`, Cách ly vùng vẽ GPU với `RepaintBoundary`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Cuộc tranh luận kinh điển: Helper Methods (`Widget _buildItem()`) vs Widget Classes (`class Item extends StatelessWidget`), Duy trì State của Tab bằng `AutomaticKeepAliveClientMixin`, Cách ly vùng vẽ GPU với `RepaintBoundary`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -152,7 +152,7 @@ RepaintBoundary(
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc chia nhỏ Widget bằng Helper Method (`Widget _buildSomething()`) lại là một Anti-Pattern nghiêm trọng so với việc tách thành một `StatelessWidget` độc lập?
 **Trả lời chuẩn 10/10**:

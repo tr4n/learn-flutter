@@ -555,7 +555,7 @@ class _GoodWidgetState extends State<GoodWidget> {
 - Để pause/resume: cần `StreamController` thủ công thay vì `async*`
 - `pause()` trên subscription: `_sub.pause()` / `_sub.resume()`
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

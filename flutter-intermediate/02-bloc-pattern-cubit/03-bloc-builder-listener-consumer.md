@@ -277,7 +277,7 @@ BlocListener<AuthBloc, AuthState>(
 4. `BlocListener`: khi có lỗi → hiện SnackBar (không navigate)
 5. `context.select` chỉ rebuild `TotalWidget` khi total thay đổi
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Tại sao không dùng BlocBuilder cho navigation?"**
    - Builder có thể chạy nhiều lần cho cùng một state (Flutter schedule rebuild)

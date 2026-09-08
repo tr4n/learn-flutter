@@ -193,7 +193,7 @@ jobs:
 
 ---
 
-## 4. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 4. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Bạn quản lý việc lưu trữ các bí mật nhạy cảm (API Keys, Keystore passwords) như thế nào trên CI/CD để đảm bảo an toàn thông tin?
 > **Trả lời xuất sắc**:  

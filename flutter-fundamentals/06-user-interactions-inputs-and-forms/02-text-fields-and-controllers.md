@@ -1,6 +1,6 @@
 # Chuyên Đề 06 - Bài 02: Ô Nhập Liệu (TextField), Controllers & FocusNode Chuyên Sâu
 
-> **Trọng tâm**: Vòng đời và cơ chế đồng bộ của `TextEditingController`, Đối chiếu sâu sắc `onChanged` vs `controller.addListener`, Điều khiển con trỏ văn bản (`TextSelection`) chống nhảy ngược vị trí, Làm chủ cây tiêu điểm với `FocusNode` & `FocusScope`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Vòng đời và cơ chế đồng bộ của `TextEditingController`, Đối chiếu sâu sắc `onChanged` vs `controller.addListener`, Điều khiển con trỏ văn bản (`TextSelection`) chống nhảy ngược vị trí, Làm chủ cây tiêu điểm với `FocusNode` & `FocusScope`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -137,7 +137,7 @@ class _AutoFocusFormScreenState extends State<AutoFocusFormScreen> {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt sự khác nhau giữa việc lắng nghe thay đổi văn bản qua `onChanged: (value) => ...` trên `TextField` và gọi `_controller.addListener(...)`. Khi nào một sự kiện làm kích hoạt listener nhưng lại KHÔNG kích hoạt `onChanged`?
 

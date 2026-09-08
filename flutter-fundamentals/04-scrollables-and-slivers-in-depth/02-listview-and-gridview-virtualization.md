@@ -1,6 +1,6 @@
 # Chuyên Đề 04 - Bài 02: Ảo Hóa Viewport Với ListView & GridView Chuyên Sâu
 
-> **Trọng tâm**: Bản chất thuật toán ảo hóa khung nhìn (`RenderSliverList` & `SliverMultiBoxAdaptorElement`), Vai trò của vùng đệm `cacheExtent`, Bí mật tối ưu hóa $O(1)$ với `itemExtent`, `itemExtentBuilder` & `prototypeItem`, Giải mã 3 lá cờ hiệu năng (`addRepaintBoundaries`, `addAutomaticKeepAlives`, `addSemanticIndexes`), và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Bản chất thuật toán ảo hóa khung nhìn (`RenderSliverList` & `SliverMultiBoxAdaptorElement`), Vai trò của vùng đệm `cacheExtent`, Bí mật tối ưu hóa $O(1)$ với `itemExtent`, `itemExtentBuilder` & `prototypeItem`, Giải mã 3 lá cờ hiệu năng (`addRepaintBoundaries`, `addAutomaticKeepAlives`, `addSemanticIndexes`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -153,7 +153,7 @@ GridView.builder(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy giải thích chi tiết cơ chế ảo hóa (Virtualization) của `ListView.builder`. `cacheExtent` đóng vai trò gì và điều gì xảy ra với các Element / RenderObject khi một item cuộn trôi hoàn toàn ra khỏi vùng đệm này?
 

@@ -135,7 +135,7 @@ testWidgets('Kiểm tra giao diện PaymentCard hiển thị khớp với thiế
 
 ---
 
-## 5. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 5. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Sự khác nhau bản chất giữa `Widget Test` và `Integration Test` trong Flutter là gì?
 > **Trả lời xuất sắc**:  

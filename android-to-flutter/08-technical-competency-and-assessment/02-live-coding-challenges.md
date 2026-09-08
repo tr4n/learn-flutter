@@ -1,7 +1,7 @@
-# Live Coding Challenges: Các Bài Toán Thực Chiến Phỏng Vấn Senior
+# Live Coding Challenges: Các Bài Toán Thuật Toán & Kỹ Thuật Thực Chiến Chuẩn Senior
 
 > **Cấp độ**: Senior / Lead Mobile Engineer  
-> **Chủ đề**: 5 bài toán Live Coding kinh điển thường gặp trong các vòng phỏng vấn kỹ thuật trực tiếp (Live Coding 45-60 phút), kèm mã nguồn chuẩn Dart 3 và phân tích độ phức tạp thuật toán.
+> **Chủ đề**: 5 bài toán Live Coding kinh điển trong các bài kiểm tra năng lực kỹ thuật thực hành (Hands-on Technical Assessment), kèm mã nguồn chuẩn Dart 3 và phân tích độ phức tạp thuật toán.
 
 ---
 

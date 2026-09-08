@@ -554,7 +554,7 @@ class ApiClient {
 - `FormatException` → `ApiError.parseError`
 - Status code >= 400 → `ApiError.serverError(statusCode)`
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

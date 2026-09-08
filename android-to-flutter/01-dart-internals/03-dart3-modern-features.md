@@ -218,7 +218,7 @@ void loadUser() async {
 
 ---
 
-## 7. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 7. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: So sánh việc dùng `sealed class` trong Dart 3 với thư viện `freezed`. Bạn có còn dùng `freezed` không và tại sao?
 > **Trả lời xuất sắc**:  

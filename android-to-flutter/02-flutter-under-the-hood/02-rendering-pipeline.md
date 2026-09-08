@@ -51,7 +51,7 @@ graph TD
 - **Loose Constraints (Ràng buộc lỏng)**: `minWidth == 0` và `minHeight == 0`, nhưng có `maxWidth` và `maxHeight`. Widget con được tự do quyết định kích thước trong giới hạn đó.
 - **Unbounded Constraints (Ràng buộc không giới hạn)**: `maxWidth == double.infinity` hoặc `maxHeight == double.infinity`. Thường xuất hiện bên trong `SingleChildScrollView` hoặc `ListView`.
 
-### 2.2. Mổ Xẻ 2 Lỗi Layout Kinh Điển Trong Phỏng Vấn
+### 2.2. Mổ Xẻ 2 Lỗi Layout Kinh Điển Thường Gặp
 
 #### Lỗi 1: `A RenderFlex overflowed by xxx pixels on the bottom`
 - **Nguyên nhân**: `Column` có chiều cao hữu hạn (bị giới hạn bởi màn hình). Tổng chiều cao của các widget con bên trong vượt quá `maxHeight` mà cha áp đặt.
@@ -120,7 +120,7 @@ Khi một `RenderObject` được đánh dấu là Repaint Boundary (`isRepaintB
 
 ---
 
-## 5. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 5. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Phương thức `WidgetsBinding.instance.addPostFrameCallback` làm nhiệm vụ gì và thường được sử dụng trong tình huống thực tế nào?
 > **Trả lời xuất sắc**:  

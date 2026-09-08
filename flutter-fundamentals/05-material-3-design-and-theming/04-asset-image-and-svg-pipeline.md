@@ -1,6 +1,6 @@
 # Chuyên Đề 05 - Bài 04: Quản Lý Assets, Vector SVG & Tối Ưu Hóa Bộ Nhớ Ảnh
 
-> **Trọng tâm**: Cơ chế chọn lọc mật độ điểm ảnh (`1.0x`, `2.0x`, `3.0x`), Tích hợp Vector SVG và đổi màu linh hoạt với `ColorFilter`, Bản chất toán học của thảm họa tràn RAM khi giải nén ảnh, Bí quyết tối ưu 95% bộ nhớ với `cacheWidth`/`cacheHeight`, Cơ chế `ImageCache` & kỹ thuật `precacheImage()`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Cơ chế chọn lọc mật độ điểm ảnh (`1.0x`, `2.0x`, `3.0x`), Tích hợp Vector SVG và đổi màu linh hoạt với `ColorFilter`, Bản chất toán học của thảm họa tràn RAM khi giải nén ảnh, Bí quyết tối ưu 95% bộ nhớ với `cacheWidth`/`cacheHeight`, Cơ chế `ImageCache` & kỹ thuật `precacheImage()`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -137,7 +137,7 @@ void didChangeDependencies() {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt sự khác nhau giữa dung lượng file ảnh nén (Disk Storage: PNG, JPG) và dung lượng ảnh khi giải nén vào bộ nhớ RAM trong Flutter. Tại sao một bức ảnh JPG chỉ 2MB lại có thể làm ứng dụng bị Out-Of-Memory (OOM)?
 

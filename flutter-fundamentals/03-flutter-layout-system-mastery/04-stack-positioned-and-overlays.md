@@ -205,7 +205,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Cơ chế tính toán kích thước (Size) của `Stack` hoạt động như thế nào? Điều gì xảy ra nếu TẤT CẢ các con bên trong một `Stack` đều là widget `Positioned`?
 

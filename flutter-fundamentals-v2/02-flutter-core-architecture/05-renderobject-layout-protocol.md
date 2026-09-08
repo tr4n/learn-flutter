@@ -486,7 +486,7 @@ void performLayout() {
 - Khi thêm `SizedBox(height: 100)` → constraint của Column thay đổi không?
 - `RepaintBoundary` ảnh hưởng gì đến layout trace?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

@@ -428,7 +428,7 @@ class _HomeScreenState extends State<HomeScreen> {
 2. Tách State thành nhiều widget nhỏ hơn để giảm rebuild scope
 3. Bật `debugPrintRebuildDirtyWidgets` và đếm số rebuild trước/sau
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

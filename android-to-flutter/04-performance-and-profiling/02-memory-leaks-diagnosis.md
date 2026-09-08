@@ -133,7 +133,7 @@ void main() {
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao một hàm `Timer.periodic` nếu không được hủy (`cancel()`) trong `dispose()` lại có thể gây rò rỉ bộ nhớ nghiêm trọng hơn một hàm `Future.delayed`?
 > **Trả lời xuất sắc**:  

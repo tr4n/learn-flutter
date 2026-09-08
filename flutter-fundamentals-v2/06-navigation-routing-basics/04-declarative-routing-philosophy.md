@@ -353,7 +353,7 @@ context.go(AppPaths.product('123'));
 2. `context.go('/home')` khác `context.push('/home')` ở điểm nào?
 3. Redirect function được gọi ở đâu trong flow?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

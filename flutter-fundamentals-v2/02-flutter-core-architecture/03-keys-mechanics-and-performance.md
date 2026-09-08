@@ -468,7 +468,7 @@ class _ColoredTextFieldState extends State<ColoredTextField> {
 3. Quan sát text trong TextField bị "nhảy" sang item khác → bug rõ ràng
 4. Thêm `ValueKey(color.value)` vào từng item → quan sát fix
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

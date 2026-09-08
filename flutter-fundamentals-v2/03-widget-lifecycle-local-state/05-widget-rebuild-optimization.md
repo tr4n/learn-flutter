@@ -455,7 +455,7 @@ Bật `debugPrintRebuildDirtyWidgets = true`.
 4. Dùng `AutomaticKeepAlive` cho product list per tab
 5. Đo lại → target <5 rebuild cho mỗi action
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

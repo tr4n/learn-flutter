@@ -289,7 +289,7 @@ redirect: (context, state) {
 5. `refreshListenable` với auth stream
 6. Sau login: redirect về intended destination
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"redirect trả về null nghĩa là gì?"**
    - `null`: không redirect — tiếp tục navigation hiện tại

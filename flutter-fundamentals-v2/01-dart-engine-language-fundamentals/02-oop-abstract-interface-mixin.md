@@ -550,7 +550,7 @@ Bạn đang xây dựng một Flutter app có nhiều model: `User`, `Product`, 
 - `toJson` và `toString` có thể vào mixin vì là instance method
 - Extension method nhận `Map<String, dynamic>` và dùng `JsonEncoder.withIndent('  ')`
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

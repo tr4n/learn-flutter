@@ -276,7 +276,7 @@ context.pushNamed('product-detail', pathParameters: {'id': id});
 4. Từ Checkout → OrderSuccess (replace Checkout trong stack)
 5. Error page cho unknown routes
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"context.go vs context.push vs context.replace?"**
    - `go`: replace toàn bộ navigation stack — bottom nav, login→home

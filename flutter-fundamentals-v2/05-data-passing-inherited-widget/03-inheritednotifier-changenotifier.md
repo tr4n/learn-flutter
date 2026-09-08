@@ -389,7 +389,7 @@ class ProfileModel extends ChangeNotifier {
 - Dùng `ListenableBuilder` để chỉ rebuild badge, không rebuild toàn AppBar
 - Cart count animation khi thêm/xóa item
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

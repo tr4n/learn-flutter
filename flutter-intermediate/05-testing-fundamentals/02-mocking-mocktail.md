@@ -288,7 +288,7 @@ setUpAll(() {
 4. Test: verify `placeOrderUseCase.call()` được gọi đúng arguments
 5. Test: verify order sau khi thành công được thêm vào list hiện tại
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Mock vs Fake — khi nào dùng cái nào?"**
    - Mock: khi cần verify interactions (was method called? how many times?)

@@ -418,7 +418,7 @@ class ChatScreen extends StatefulWidget {
 
 **Gợi ý:** Dùng `ConnectionState` của `AsyncSnapshot` để track loading state, hoặc quản lý state riêng với field `_isLoading`.
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 
@@ -569,7 +569,7 @@ void reassemble() {
 
 **Hot restart** (`R` viết hoa) thì khác — restart hoàn toàn app, mọi State bị mất, lifecycle bắt đầu lại từ `main()`.
 
-**Điểm quan trọng cho interview:** Nếu hot reload không cập nhật đúng (ví dụ: `initState` có logic quan trọng), bạn cần hot restart. `reassemble()` là hook để xử lý edge case này.
+**Điểm quan trọng cần lưu ý khi phát triển & debug:** Nếu hot reload không cập nhật đúng (ví dụ: `initState` có logic quan trọng), bạn cần hot restart. `reassemble()` là hook để xử lý edge case này.
 
 ---
 

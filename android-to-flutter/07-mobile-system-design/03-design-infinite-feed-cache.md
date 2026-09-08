@@ -1,7 +1,7 @@
 # Mobile System Design: Bảng Tin Cuộn Vô Tận (Infinite Feed) Với Bộ Nhớ Đệm Đa Tầng
 
 > **Cấp độ**: Senior / Staff Mobile Engineer  
-> **Đề bài phỏng vấn**: *"Hãy thiết kế kiến trúc kỹ thuật cho một bảng tin mạng xã hội cuộn vô tận (Instagram / TikTok / Twitter) chứa nội dung hỗn hợp gồm bài viết, ảnh độ phân giải cao và video tự động phát, đảm bảo luôn duy trì 60/120 FPS mà không bị tràn RAM."*
+> **Bài toán thiết kế thực tế (Real-world Architecture Problem)**: *"Hãy thiết kế kiến trúc kỹ thuật cho một bảng tin mạng xã hội cuộn vô tận (Instagram / TikTok / Twitter) chứa nội dung hỗn hợp gồm bài viết, ảnh độ phân giải cao và video tự động phát, đảm bảo luôn duy trì 60/120 FPS mà không bị tràn RAM."*
 
 ---
 
@@ -118,7 +118,7 @@ ListView.builder(
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Bạn hãy giải thích cơ chế "Windowing" (hoặc Virtualization) trong `ListView.builder` và cách Flutter quản lý vòng đời của các phần tử khi cuộn?
 > **Trả lời xuất sắc**:  

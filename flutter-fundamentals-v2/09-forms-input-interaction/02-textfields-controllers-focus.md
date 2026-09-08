@@ -337,7 +337,7 @@ class _State extends State<MyWidget> {
 - `FocusNode` + `TextEditingController` cho mỗi field
 - `ValueListenableBuilder` hoặc listener để track all-filled state
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

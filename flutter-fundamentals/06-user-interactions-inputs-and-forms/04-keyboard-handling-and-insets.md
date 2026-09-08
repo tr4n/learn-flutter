@@ -1,6 +1,6 @@
 # Chuyên Đề 06 - Bài 04: Xử Lý Bàn Phím Ảo & Khoảng Đệm An Toàn (Keyboard Insets)
 
-> **Trọng tâm**: Phân biệt bản chất 3 loại Insets (`viewInsets`, `viewPadding`, `padding`), Cơ chế co giãn màn hình của `Scaffold.resizeToAvoidBottomInset`, Làm chủ widget `TapRegion` (Flutter 3.7+) thay thế `GestureDetector` truyền thống để ẩn phím, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Phân biệt bản chất 3 loại Insets (`viewInsets`, `viewPadding`, `padding`), Cơ chế co giãn màn hình của `Scaffold.resizeToAvoidBottomInset`, Làm chủ widget `TapRegion` (Flutter 3.7+) thay thế `GestureDetector` truyền thống để ẩn phím, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -99,7 +99,7 @@ TextField(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt sự khác nhau giữa 3 thuộc tính: `viewInsets`, `viewPadding`, và `padding` trong `MediaQueryData`. Khi bàn phím ảo xuất hiện trên màn hình, giá trị của 3 thuộc tính này biến thiên như thế nào?
 

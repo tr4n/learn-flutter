@@ -1,6 +1,6 @@
 # Chuyên Đề 03 - Bài 02: Giải Phẫu BoxConstraints (Tight, Loose, Bounded & Unbounded)
 
-> **Trọng tâm**: 4 trạng thái cốt lõi của `BoxConstraints`, Các hàm khởi tạo đặc biệt (`tight`, `loose`, `expand`), Cách các Widget biến đổi ràng buộc (`Center`, `SizedBox`, `ConstrainedBox`, `UnconstrainedBox`, `OverflowBox`), và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: 4 trạng thái cốt lõi của `BoxConstraints`, Các hàm khởi tạo đặc biệt (`tight`, `loose`, `expand`), Cách các Widget biến đổi ràng buộc (`Center`, `SizedBox`, `ConstrainedBox`, `UnconstrainedBox`, `OverflowBox`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -100,7 +100,7 @@ OverflowBox(
 
 ---
 
-## 🎯 4. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 4. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Phân biệt chi tiết 4 trạng thái của `BoxConstraints`: Tight, Loose, Bounded, Unbounded. Nêu một widget đại diện truyền xuống từng loại ràng buộc này.
 **Trả lời chuẩn 10/10**:

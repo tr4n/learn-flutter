@@ -1,6 +1,6 @@
 # Chuyên Đề 02 - Bài 01: Tính Bất Biến Của Widget & Bản Chất Cây Widget
 
-> **Trọng tâm**: Tại sao Widget trong Flutter bắt buộc phải là bất biến (`@immutable`), Bản chất kiến trúc 3 cây (Widget Tree, Element Tree, RenderObject Tree), Cơ chế so sánh Diffing `Widget.canUpdate()`, Chi phí bộ nhớ thực tế, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Tại sao Widget trong Flutter bắt buộc phải là bất biến (`@immutable`), Bản chất kiến trúc 3 cây (Widget Tree, Element Tree, RenderObject Tree), Cơ chế so sánh Diffing `Widget.canUpdate()`, Chi phí bộ nhớ thực tế, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -108,7 +108,7 @@ Container(color: Colors.red, child: const Text('A'))
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Flutter lại phân tách thành 3 cây (Widget Tree, Element Tree, RenderObject Tree) thay vì chỉ dùng 1 cây duy nhất như hệ thống DOM trên Web?
 **Trả lời chuẩn 10/10**:

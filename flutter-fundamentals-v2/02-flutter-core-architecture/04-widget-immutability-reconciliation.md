@@ -536,7 +536,7 @@ class _DemoScreenState extends State<DemoScreen> {
 4. Tách Counter thành widget riêng (đặt `setState` trong widget con)
 5. Đếm lại — sự khác biệt là bao nhiêu?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

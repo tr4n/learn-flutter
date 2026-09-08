@@ -274,7 +274,7 @@ textTheme: GoogleFonts.interTextTheme().copyWith(
 - Dùng `Theme.of(context).textTheme` và iterate qua tất cả properties
 - `ThemeData.copyWith(textTheme: ...)` để switch font mà không cần restart app
 
-### Câu hỏi phỏng vấn liên quan:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Sự khác biệt giữa 15 text roles trong M3?"**
    - Display: hero text, marketing — không phải UI text

@@ -289,7 +289,7 @@ final todosProvider = StateNotifierProvider<TodoNotifier, List<Todo>>(
 3. Settings screen dùng `ref.read` để set theme
 4. Persist preference bằng `SharedPreferences` trong `StateNotifier`
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"Riverpod vs Provider package — điểm khác biệt lớn nhất?"**
    - Riverpod: compile-time safe, không cần context, providers global

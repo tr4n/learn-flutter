@@ -1,6 +1,6 @@
 # Chuyên Đề 03 - Bài 03: Flex Layouts: Làm Chủ Row, Column, Expanded & Flexible
 
-> **Trọng tâm**: Cơ chế toán học đằng sau `RenderFlex`, Thuật toán layout 2-pass nội bộ, Trục chính (Main Axis) vs Trục phụ (Cross Axis), Căn gióng đường chân chữ với `CrossAxisAlignment.baseline`, So sánh chuẩn xác `Expanded` (`FlexFit.tight`) vs `Flexible` (`FlexFit.loose`), và các câu hỏi phỏng vấn tuyển dụng chuyên sâu.
+> **Trọng tâm**: Cơ chế toán học đằng sau `RenderFlex`, Thuật toán layout 2-pass nội bộ, Trục chính (Main Axis) vs Trục phụ (Cross Axis), Căn gióng đường chân chữ với `CrossAxisAlignment.baseline`, So sánh chuẩn xác `Expanded` (`FlexFit.tight`) vs `Flexible` (`FlexFit.loose`), và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -210,7 +210,7 @@ Row(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Sự khác biệt cốt lõi giữa `Expanded` và `Flexible` là gì? Hãy nêu một trường hợp thực tế bắt buộc phải dùng `Flexible(fit: FlexFit.loose)` thay vì `Expanded`?
 

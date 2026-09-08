@@ -230,7 +230,7 @@ graph TD
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Flutter lại chọn cách vẽ dải sọc vàng đen cảnh báo tràn màn hình (Overflow) trong môi trường Debug thay vì tự động sinh thanh cuộn hoặc ẩn đi (Clip) như cơ chế mặc định của trình duyệt Web?
 

@@ -1,10 +1,10 @@
-# Ngân Hàng Câu Hỏi Phỏng Vấn Toàn Diện: Junior $\rightarrow$ Middle $\rightarrow$ Senior
+# Ngân Hàng Câu Hỏi Thẩm Định Năng Lực Kỹ Thuật: Junior $\rightarrow$ Middle $\rightarrow$ Senior
 
-> **Mục tiêu**: Bộ ngân hàng câu hỏi phỏng vấn chuẩn hóa phân loại theo 3 cấp độ năng lực: từ kiến trúc nền tảng (Junior), kỹ thuật thực chiến & kiến trúc dự án (Middle), đến bản chất tầng sâu bên dưới & tối ưu hiệu năng (Senior).
+> **Mục tiêu**: Bộ ngân hàng câu hỏi thẩm định kỹ thuật chuẩn hóa phân loại theo 3 cấp độ năng lực: từ kiến trúc nền tảng (Junior), kỹ thuật thực chiến & kiến trúc dự án (Middle), đến bản chất tầng sâu bên dưới & tối ưu hiệu năng (Senior).
 
 ---
 
-## 🔰 CẤP ĐỘ 1: VÒNG PHỎNG VẤN JUNIOR (KIẾN THỨC NỀN TẢNG & BASE)
+## 🔰 CẤP ĐỘ 1: ĐÁNH GIÁ NĂNG LỰC NỀN TẢNG (BASE & JUNIOR)
 
 ### Q1.1: Phân biệt sự khác nhau giữa `StatelessWidget` và `StatefulWidget`. Khi nào thì dùng loại nào?
 - **StatelessWidget**:
@@ -40,7 +40,7 @@
 
 ---
 
-## 🔷 CẤP ĐỘ 2: VÒNG PHỎNG VẤN MIDDLE (THỰC CHIẾN & KIẾN TRÚC ỨNG DỤNG)
+## 🔷 CẤP ĐỘ 2: THỰC CHIẾN & KIẾN TRÚC ỨNG DỤNG (MIDDLE)
 
 ### Q2.1: So sánh ưu nhược điểm của BLoC và Riverpod. Bạn sẽ chọn giải pháp nào cho dự án của mình?
 - **BLoC**:
@@ -70,7 +70,7 @@
 
 ---
 
-## 🔶 CẤP ĐỘ 3: VÒNG PHỎNG VẤN SENIOR (UNDER-THE-HOOD & SYSTEM DESIGN)
+## 🔶 CẤP ĐỘ 3: TẦNG SÂU UNDER-THE-HOOD & TỐI ƯU HÓA HỆ THỐNG (SENIOR)
 
 ### Q3.1: Trình bày chi tiết cơ chế hoạt động của 3 cây: Widget Tree, Element Tree và RenderObject Tree. Thuật toán `canUpdate` vận hành như thế nào?
 - **Widget Tree**: Bản thiết kế bất biến (Immutable Blueprint), cực nhẹ, sinh ra và chết đi liên tục sau mỗi khung hình.

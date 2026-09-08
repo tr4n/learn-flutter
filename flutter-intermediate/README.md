@@ -68,7 +68,7 @@ Mỗi chapter tuân theo cấu trúc:
 > ❌ Anti-pattern → ✅ Đúng + giải thích kỹ thuật.
 
 ## Phần 5 — Bài Tập Củng Cố Tư Duy
-> 1 challenge cụ thể + câu hỏi phỏng vấn liên quan.
+> 1 challenge cụ thể + câu hỏi thẩm định chuyên sâu liên quan.
 ```
 
 ---

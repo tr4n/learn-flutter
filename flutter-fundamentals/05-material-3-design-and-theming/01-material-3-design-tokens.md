@@ -1,6 +1,6 @@
 # Chuyên Đề 05 - Bài 01: Material 3 & Hệ Thống Bảng Màu Tự Động (ColorScheme.fromSeed)
 
-> **Trọng tâm**: Cuộc cách mạng Material 3 (Material You), Không gian màu HCT (Hue - Chroma - Tone), Cơ chế sinh bảng màu Tonal Palettes từ `ColorScheme.fromSeed`, Bản chất của Surface Tonal Elevation (`surfaceTint`) thay thế Drop Shadow, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Cuộc cách mạng Material 3 (Material You), Không gian màu HCT (Hue - Chroma - Tone), Cơ chế sinh bảng màu Tonal Palettes từ `ColorScheme.fromSeed`, Bản chất của Surface Tonal Elevation (`surfaceTint`) thay thế Drop Shadow, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -126,7 +126,7 @@ class AppTheme {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao Google lại thay thế không gian màu RGB/HSV truyền thống bằng không gian màu HCT (Hue, Chroma, Tone) trong Material 3? Không gian màu này giải quyết bài toán gì cho khả năng tiếp cận (Accessibility - a11y)?
 

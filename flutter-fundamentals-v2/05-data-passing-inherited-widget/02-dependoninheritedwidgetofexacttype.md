@@ -329,7 +329,7 @@ Widget build(BuildContext context) {
 3. Quan sát output: widget nào rebuild và widget nào không
 4. Thêm widget mới vào tree nhưng KHÔNG gọi `CounterProvider.of(context)` → widget đó có rebuild không?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

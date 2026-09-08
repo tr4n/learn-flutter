@@ -1,6 +1,6 @@
 # Chuyên Đề 03 - Bài 06: Thiết Kế Giao Diện Thích Ứng (Responsive & Adaptive Layouts) Chuyên Sâu
 
-> **Trọng tâm**: Phân biệt bản chất Responsive vs Adaptive, Cơ chế tối ưu hóa rebuild với `InheritedModel` trong `MediaQuery.sizeOf(context)` (Flutter 3.7+), `TextScaler` (Flutter 3.16+), Đối chiếu sâu sắc `LayoutBuilder` vs `MediaQuery`, Xây dựng hệ thống Breakpoints công nghiệp, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Phân biệt bản chất Responsive vs Adaptive, Cơ chế tối ưu hóa rebuild với `InheritedModel` trong `MediaQuery.sizeOf(context)` (Flutter 3.7+), `TextScaler` (Flutter 3.16+), Đối chiếu sâu sắc `LayoutBuilder` vs `MediaQuery`, Xây dựng hệ thống Breakpoints công nghiệp, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -182,7 +182,7 @@ class ResponsiveLayout extends StatelessWidget {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy phân biệt sự khác biệt cốt lõi giữa Responsive Layout và Adaptive Layout trong phát triển ứng dụng Flutter đa nền tảng. Lấy ví dụ minh họa cụ thể cho từng khái niệm.
 

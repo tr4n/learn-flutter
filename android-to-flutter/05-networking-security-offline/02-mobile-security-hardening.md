@@ -141,7 +141,7 @@ Trong các ứng dụng Fintech / Ngân hàng, Senior Engineer phải thiết l�
 
 ---
 
-## 5. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 5. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao hacker sử dụng framework động như `Frida` có thể vượt qua (bypass) được SSL Pinning trong ứng dụng Flutter, và bạn hạn chế điều đó như thế nào?
 > **Trả lời xuất sắc**:  

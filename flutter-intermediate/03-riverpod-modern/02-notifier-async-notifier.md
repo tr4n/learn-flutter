@@ -292,7 +292,7 @@ class CounterNotifier extends Notifier<int> {
 4. Method `updateBio(String)`: optimistic update
 5. UI dùng `when(data, loading, error)` + skipLoadingOnRefresh
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"AsyncValue.when() vs AsyncValue.maybeWhen()?"**
    - `when`: phải handle tất cả 3 cases (data/loading/error)

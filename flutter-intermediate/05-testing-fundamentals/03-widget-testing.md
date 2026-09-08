@@ -292,7 +292,7 @@ expect(
 4. Test: hiển thị loading indicator khi state = LoginLoading
 5. Test: hiển thị error message khi state = LoginFailure
 
-### Câu hỏi phỏng vấn:
+### Thử thách thẩm định kỹ thuật:
 
 1. **"pumpWidget vs pump vs pumpAndSettle?"**
    - `pumpWidget`: build widget lần đầu

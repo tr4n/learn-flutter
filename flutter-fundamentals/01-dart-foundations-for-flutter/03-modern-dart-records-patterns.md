@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 03: Modern Dart 3 Records, Patterns & Sealed Classes
 
-> **Trọng tâm**: Sử dụng Records để trả về nhiều giá trị ẩn danh, Pattern Matching trong câu lệnh `switch` expression, Guard clauses (`when`), Quản lý trạng thái giao diện an toàn 100% (Type-Safe UI State) với `sealed class`, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Sử dụng Records để trả về nhiều giá trị ẩn danh, Pattern Matching trong câu lệnh `switch` expression, Guard clauses (`when`), Quản lý trạng thái giao diện an toàn 100% (Type-Safe UI State) với `sealed class`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -149,7 +149,7 @@ String handleHttpResponse(int statusCode, dynamic data) {
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: So sánh Dart 3 `Records` với class `Tuple` (từ package thứ 3) hoặc `Map` về mặt quản lý bộ nhớ, hiệu năng và Type-safety.
 **Trả lời chuẩn 10/10**:

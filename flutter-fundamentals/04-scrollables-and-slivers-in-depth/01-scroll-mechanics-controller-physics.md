@@ -1,6 +1,6 @@
 # Chuyên Đề 04 - Bài 01: Kiến Trúc Cuộn, ScrollController, NotificationListener & ScrollPhysics
 
-> **Trọng tâm**: 4 trụ cột kiến trúc cuộn trong Flutter (`Scrollable`, `Viewport`, `ScrollPosition`, `ScrollController`), Xử lý an toàn với `hasClients`, Đối chiếu `ScrollController.addListener` vs `NotificationListener<ScrollNotification>`, Cơ chế kết hợp vật lý cuộn với `ScrollPhysics.applyTo()`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: 4 trụ cột kiến trúc cuộn trong Flutter (`Scrollable`, `Viewport`, `ScrollPosition`, `ScrollController`), Xử lý an toàn với `hasClients`, Đối chiếu `ScrollController.addListener` vs `NotificationListener<ScrollNotification>`, Cơ chế kết hợp vật lý cuộn với `ScrollPhysics.applyTo()`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -214,7 +214,7 @@ RefreshIndicator(
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy phân tích 4 trụ cột kiến trúc của hệ thống cuộn trong Flutter (`Scrollable`, `Viewport`, `ScrollPosition`, `ScrollController`). Tại sao một `ScrollController` lại có thể gắn vào nhiều widget cuộn cùng lúc?
 

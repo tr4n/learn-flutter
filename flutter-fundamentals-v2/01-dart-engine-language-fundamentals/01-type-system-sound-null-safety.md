@@ -414,7 +414,7 @@ class ApiResponse {
 - `statusCode` luôn tồn tại → `int statusCode` (non-nullable)
 - `timestamp` luôn có → `DateTime timestamp`
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

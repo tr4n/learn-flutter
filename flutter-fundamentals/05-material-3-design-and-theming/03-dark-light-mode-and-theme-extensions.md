@@ -1,6 +1,6 @@
 # Chuyên Đề 05 - Bài 03: Chế Độ Dark / Light Mode & Mở Rộng Theme Với ThemeExtension
 
-> **Trọng tâm**: Đồng bộ Dark/Light Mode với hệ điều hành (`ThemeMode.system`), Nhược điểm chết người của việc dùng hằng số màu tĩnh (`AppColors`), Làm chủ `ThemeExtension<T>` với phương thức nội suy `lerp()`, Kiến trúc lưu trữ bền vững trạng thái Theme, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Đồng bộ Dark/Light Mode với hệ điều hành (`ThemeMode.system`), Nhược điểm chết người của việc dùng hằng số màu tĩnh (`AppColors`), Làm chủ `ThemeExtension<T>` với phương thức nội suy `lerp()`, Kiến trúc lưu trữ bền vững trạng thái Theme, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -188,7 +188,7 @@ class ThemeController extends ValueNotifier<ThemeMode> {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc sử dụng một class hằng số tĩnh (`static const Color success = Colors.orange`) lại bị coi là một Anti-Pattern khi xây dựng Design System trong Flutter? `ThemeExtension<T>` giải quyết vấn đề này như thế nào?
 

@@ -163,7 +163,7 @@ bool _isRetryable(dynamic error) {
 
 ---
 
-## 4. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 4. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Tại sao trong đoạn code làm mới Token ở trên, ta bắt buộc phải sử dụng một instance `Dio` độc lập (`tokenDio`) thay vì dùng chính instance `dio` đang gắn interceptor?
 > **Trả lời xuất sắc**:  

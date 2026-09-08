@@ -7,7 +7,7 @@
 
 ## 1. Bản Chất 3 Cây Trong Flutter (The Three Trees Architecture)
 
-Một trong những câu hỏi phỏng vấn phân loại Senior hàng đầu: **"Khi bạn gọi `runApp(MyWidget())`, điều gì thực sự diễn ra bên dưới Flutter Framework?"**
+Một câu hỏi kiến trúc phân loại chiều sâu kỹ sư hàng đầu: **"Khi bạn gọi `runApp(MyWidget())`, điều gì thực sự diễn ra bên dưới Flutter Framework?"**
 
 Flutter không vẽ trực tiếp các `Widget` lên màn hình. Framework duy trì **ba cái cây đồng thời**:
 
@@ -172,7 +172,7 @@ Tại tầng Framework, có hai "nhạc trưởng" âm thầm điều hành toà
 
 ---
 
-## 6. Góc Phỏng Vấn Senior (Senior Interview Q&A)
+## 6. Góc Thẩm Định Kỹ Thuật Senior (Senior Engineering Assessment)
 
 ### Q1: Bạn hãy giải thích cơ chế nội bộ khi hàm `setState()` được gọi?
 > **Trả lời xuất sắc**:  

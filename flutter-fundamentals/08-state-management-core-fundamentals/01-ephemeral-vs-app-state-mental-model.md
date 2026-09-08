@@ -1,6 +1,6 @@
 # Chuyên Đề 08 - Bài 01: Mô Hình Tư Duy: Ephemeral State vs App State
 
-> **Trọng tâm**: Định nghĩa chính thức của Google về hai loại trạng thái trong ứng dụng Flutter: Ephemeral State (Cục bộ) vs App State (Toàn cục), Cơ chế "Lifting State Up" (Nâng trạng thái lên cha chung), Khung quyết định kiến trúc 4 câu hỏi, Cạm bẫy Over-engineering và Under-engineering, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Định nghĩa chính thức của Google về hai loại trạng thái trong ứng dụng Flutter: Ephemeral State (Cục bộ) vs App State (Toàn cục), Cơ chế "Lifting State Up" (Nâng trạng thái lên cha chung), Khung quyết định kiến trúc 4 câu hỏi, Cạm bẫy Over-engineering và Under-engineering, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -131,7 +131,7 @@ flowchart TD
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Hãy phân biệt sự khác nhau giữa Ephemeral State và App State theo tài liệu chính thức của Google. Hãy đưa ra 3 ví dụ thực tế cho mỗi loại trong một ứng dụng Fintech / Ngân hàng số.
 

@@ -506,7 +506,7 @@ String describe(Object? obj) {
 - `TooShort({required String field, required int minLength})`
 - `TooWeak(List<String> requirements)` — những yêu cầu chưa đáp ứng
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu compiler/VM level | **[Trace Code]** — đọc code và dự đoán output
 

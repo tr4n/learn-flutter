@@ -4,7 +4,7 @@
 
 ### Tại sao bài này quan trọng?
 
-Câu hỏi phỏng vấn cơ bản: *"Sự khác biệt giữa StatelessWidget và StatefulWidget?"*
+Câu hỏi thẩm định nền tảng: *"Sự khác biệt giữa StatelessWidget và StatefulWidget?"*
 
 Câu trả lời ngây thơ: *"StatelessWidget không có State."*
 
@@ -458,7 +458,7 @@ class _ChildWidgetState extends State<ChildWidget> {
 2. `widget.label` trong child có update theo `_parentCount` không?
 3. Nếu thêm `key: UniqueKey()` vào ChildWidget → kết quả thay đổi thế nào?
 
-### Câu Hỏi Phỏng Vấn
+### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
 
 > **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
 

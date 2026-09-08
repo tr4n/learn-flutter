@@ -1,6 +1,6 @@
 # Chuyên Đề 04 - Bài 05: NestedScrollView & Kỹ Thuật Phối Hợp Cuộn Đa Tầng (SliverOverlapAbsorber)
 
-> **Trọng tâm**: Xử lý xung đột cuộn khi làm màn hình TabBar lồng danh sách cuộn (Profile phong cách Twitter/Shopee), Kiến trúc 2 bộ điều khiển (Outer vs Inner ScrollController), Giải mã cặp bài trùng `SliverOverlapAbsorber` & `SliverOverlapInjector`, và bộ câu hỏi phỏng vấn tuyển dụng top tech.
+> **Trọng tâm**: Xử lý xung đột cuộn khi làm màn hình TabBar lồng danh sách cuộn (Profile phong cách Twitter/Shopee), Kiến trúc 2 bộ điều khiển (Outer vs Inner ScrollController), Giải mã cặp bài trùng `SliverOverlapAbsorber` & `SliverOverlapInjector`, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -155,7 +155,7 @@ class ProfileScreen extends StatelessWidget {
 
 ---
 
-## 🎯 Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc lồng trực tiếp một `ListView` hoặc `TabBarView` bên trong một `CustomScrollView` thông thường lại dẫn đến lỗi xung đột cuộn (Scroll Conflict)? `NestedScrollView` giải quyết bài toán này bằng kiến trúc nào?
 

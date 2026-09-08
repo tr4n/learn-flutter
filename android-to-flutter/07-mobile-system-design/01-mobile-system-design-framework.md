@@ -1,7 +1,7 @@
-# Mobile System Design Framework: Khung Tiếp Cận Phỏng Vấn Kiến Trúc Chuẩn Senior
+# Mobile System Design Framework: Khung Thiết Kế & Bảo Vệ Kiến Trúc Chuẩn Senior
 
 > **Cấp độ**: Senior / Staff Mobile Engineer  
-> **Chủ đề**: Khung sườn RADIO Framework 5 bước làm chủ vòng phỏng vấn Mobile System Design, Cách đặt câu hỏi phân tích bài toán, Phân tích Non-Functional Requirements (Pin, RAM, Băng thông, 60 FPS).
+> **Chủ đề**: Khung sườn RADIO Framework 5 bước thiết kế và thẩm định kiến trúc Mobile System Design, Cách phân tích bài toán kỹ thuật, Thẩm định Non-Functional Requirements (Pin, RAM, Băng thông, 60 FPS).
 
 ---
 
@@ -17,7 +17,7 @@ Trong khi Backend System Design tập trung vào: Load Balancer, Microservices, 
 
 ## 2. Khung Tiếp Cận RADIO (The RADIO Framework)
 
-Để không bị bối rối và phân bổ thời gian hợp lý trong buổi phỏng vấn (thường kéo dài 45-60 phút), hãy luôn áp dụng **RADIO Framework**:
+Để phân tích toàn diện một bài toán thiết kế kiến trúc hệ thống và bảo vệ giải pháp trước các bên liên quan (Architecture Defense), hãy luôn áp dụng **RADIO Framework**:
 
 ```mermaid
 graph TD
@@ -30,11 +30,11 @@ graph TD
 ---
 
 ### Bước 1: R - Requirements Clarification (Làm Rõ Yêu Cầu - 10 phút)
-Tuyệt đối không bắt tay vào vẽ sơ đồ ngay khi vừa nghe đề bài. Hãy đặt câu hỏi ngược lại cho Interviewer:
+Tuyệt đối không bắt tay vào vẽ sơ đồ ngay khi vừa tiếp nhận đề bài. Hãy chủ động làm rõ các yêu cầu và ràng buộc kỹ thuật với Stakeholders / Product Team:
 
 1. **Yêu Cầu Chức Năng (Functional Requirements - FR)**:
-   - Ứng dụng cần hỗ trợ những tính năng cốt lõi nào trong buổi phỏng vấn này? (Ví dụ: Gửi/nhận tin nhắn, hiển thị trạng thái đã xem, hay cả gọi video?).
-   - Giới hạn phạm vi: *"Để tập trung sâu trong 45 phút tới, tôi xin phép tập trung vào luồng gửi tin nhắn văn bản, hỗ trợ offline và xem tin nhắn, các tính năng gọi video ta có thể thảo luận sau nếu còn thời gian, anh thấy sao?"*
+   - Ứng dụng cần hỗ trợ những tính năng cốt lõi nào trong phạm vi (scope) thiết kế này? (Ví dụ: Gửi/nhận tin nhắn, hiển thị trạng thái đã xem, hay cả gọi video?).
+   - Giới hạn phạm vi (Scope Definition): *"Để giải quyết triệt để bài toán kiến trúc, giải pháp tập trung vào luồng gửi tin nhắn văn bản, hỗ trợ offline và đồng bộ dữ liệu; các tính năng mở rộng như gọi video sẽ được thiết kế theo module cắm ghép độc lập."*
 2. **Yêu Cầu Phi Chức Năng (Non-Functional Requirements - NFR)**:
    - **Offline Support**: Có cần hoạt động khi mất mạng không?
    - **Performance**: Cuộn danh sách phải đạt 60/120 FPS, thời gian mở app $<1.5$s.

@@ -1,6 +1,6 @@
 # Chuyên Đề 01 - Bài 06: Extension Methods, Hợp Đồng Bình Đẳng (Equality Contract) & Generics
 
-> **Trọng tâm**: Phương thức mở rộng (Extension Methods) trong Flutter UI, Dart 3.3 Extension Types (Trừu tượng hóa chi phí 0 đồng - Zero-cost abstractions), Hợp đồng bất biến giữa `operator ==` và `hashCode`, Hệ thống Generics Reified của Dart, và Bộ câu hỏi phỏng vấn chuẩn Google.
+> **Trọng tâm**: Phương thức mở rộng (Extension Methods) trong Flutter UI, Dart 3.3 Extension Types (Trừu tượng hóa chi phí 0 đồng - Zero-cost abstractions), Hợp đồng bất biến giữa `operator ==` và `hashCode`, Hệ thống Generics Reified của Dart, và bộ câu hỏi thẩm định năng lực kỹ thuật chuyên sâu.
 
 ---
 
@@ -172,7 +172,7 @@ class BaseWidgetContainer<T extends Widget> {
 
 ---
 
-## 🎯 5. Góc Phỏng Vấn Tuyển Dụng (Google & Top Tech Interview Q&A)
+## 🎯 5. Thẩm Định Năng Lực & Phân Tích Chuyên Sâu (Technical Competency & Deep Dive)
 
 ### Câu hỏi 1: Tại sao việc override `operator ==` mà quên override `hashCode` lại phá hỏng hoàn toàn hành vi của `Set` và `Map`?
 **Trả lời chuẩn 10/10**:
