@@ -1,61 +1,215 @@
-# 📘 Cẩm Nang Chuyên Sâu: Flutter Fundamentals (Chuẩn Google Flutter)
+# 📘 Tập 1: Flutter Fundamentals & Dart Core Architecture — V2
+### Chuẩn Google · Từ cơ chế nền tảng đến tư duy lập trình UI đúng đắn
 
-> **Tài liệu tham chiếu chính thống**: Dựa trên tiêu chuẩn kỹ thuật của Google (`flutter.dev`, Google Developers Codelabs, Flutter Architecture Guidelines và Material Design 3).  
-> **Mục tiêu**: Nắm vững 100% bản chất cơ chế, kỹ thuật lập trình ứng dụng và các quy tắc thiết kế cốt lõi của Flutter Framework mà không bị quá tải bởi các kiến thức tầng sâu C++ Engine / FFI.
+> **Triết lý**: *"Hiểu sâu một lần, đúng mãi mãi."* Tập này không dạy bạn dùng widget nào — mà dạy bạn **tại sao** Flutter hoạt động theo cách nó hoạt động, để bạn tự suy ra câu trả lời cho mọi bài toán mới.
 
 ---
 
-## 🏛️ Triết Lý Thiết Kế Của Flutter (The Google Way)
+## Bốn Trụ Cột Của Tập 1
 
-Trước khi viết bất kỳ dòng code nào, lập trình viên Flutter cần thấu suốt 4 trụ cột triết lý mà đội ngũ kỹ sư Google đã đặt làm nền tảng cho framework:
+```
+1. COMPOSITION    — Mọi UI là Widget lồng nhau; hiểu cây 3 tầng Widget-Element-RenderObject
+2. CONSTRAINTS    — "Constraints go down, Sizes go up, Parent sets position" là nền tảng layout
+3. STATE          — State không nằm trong Widget, mà trong Element; setState chỉ đánh dấu dirty
+4. DART-FIRST     — Sound Null Safety, Event Loop, sealed class là nền móng trước khi mở Flutter
+```
+
+---
+
+## 🗺️ Bảng Mục Lục
+
+| # | Module | Chapter | Trọng tâm kỹ thuật |
+|:---:|:---|:---:|:---|
+| **01** | [Dart Engine & Language Fundamentals](#module-01--dart-engine--language-fundamentals) | 6 | Null Safety, OOP, Sealed, Event Loop, Stream, Result |
+| **02** | [Flutter Core Architecture](#module-02--flutter-core-architecture) | 5 | 3 Trees, BuildContext, Keys, Immutability, RenderObject |
+| **03** | [Widget Lifecycle & Local State](#module-03--widget-lifecycle--local-state) | 5 | Stateful lifecycle, setState, Ticker, Rebuild optimization |
+| **04** | [Layout Engine](#module-04--layout-engine) | 6 | Constraints rule, BoxConstraints, Flex, Stack, Scroll, Responsive |
+| **05** | [Data Passing & InheritedWidget](#module-05--data-passing--inheritedwidget) | 4 | Prop Drilling, InheritedWidget internals, Notifier, Provider |
+| **06** | [Navigation & Routing Basics](#module-06--navigation--routing-basics) | 4 | Navigator 1.0, Data passing, Named routes, Declarative intro |
+| **07** | [Networking, Assets & Multimedia](#module-07--networking-assets--multimedia) | 4 | Assets, HTTP/Dio, JSON serialization, FutureBuilder |
+| **08** ★ | [Animations Fundamentals](#module-08--animations-fundamentals-bonus) | 4 | Implicit, Explicit, Hero, Staggered |
+| **09** ★ | [Forms & User Input](#module-09--forms--user-input-bonus) | 4 | Gestures, TextField, Form validation, Keyboard |
+
+★ = Bonus module
+
+**Tổng:** 9 module · 42 chapter · ~14,700 dòng nội dung kỹ thuật
+
+---
+
+## Module 01 — Dart Engine & Language Fundamentals
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 1.1 | [Type System & Sound Null Safety](./01-dart-engine-language-fundamentals/01-type-system-sound-null-safety.md) | `T?`, `late`, type promotion, null-aware ops |
+| 1.2 | [OOP — Abstract, Interface, Mixin](./01-dart-engine-language-fundamentals/02-oop-abstract-interface-mixin.md) | `implements` vs `extends` vs `with`, C3 linearization |
+| 1.3 | [Sealed Classes, Records & Patterns](./01-dart-engine-language-fundamentals/03-sealed-classes-records-patterns.md) | ADT, exhaustive switch, Records, Pattern matching |
+| 1.4 | [Event Loop, Microtask & Future](./01-dart-engine-language-fundamentals/04-event-loop-microtask-future.md) | Event Queue vs Microtask Queue, `async/await` |
+| 1.5 | [Streams & Reactive Programming](./01-dart-engine-language-fundamentals/05-streams-reactive-programming.md) | Single-sub vs broadcast, `StreamController`, `async*` |
+| 1.6 | [Exception Handling & Result Pattern](./01-dart-engine-language-fundamentals/06-exception-handling-result-pattern.md) | `try/catch`, typed Exception, sealed `Result<T, E>` |
+
+---
+
+## Module 02 — Flutter Core Architecture
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 2.1 | [Ba Cây: Widget – Element – RenderObject](./02-flutter-core-architecture/01-three-trees-widget-element-renderobject.md) | Blueprint vs cầu nối vs render, reconciliation |
+| 2.2 | [BuildContext — Vị Trí Trong Element Tree](./02-flutter-core-architecture/02-buildcontext-location-in-element-tree.md) | Context = Element, async gap pitfall |
+| 2.3 | [Keys — Cơ Chế & Hiệu Năng](./02-flutter-core-architecture/03-keys-mechanics-and-performance.md) | ValueKey, GlobalKey, chi phí và khi nào dùng |
+| 2.4 | [Widget Immutability & Reconciliation](./02-flutter-core-architecture/04-widget-immutability-reconciliation.md) | `@immutable`, `const` = identity equal, skip build |
+| 2.5 | [RenderObject & Layout Protocol](./02-flutter-core-architecture/05-renderobject-layout-protocol.md) | `performLayout`, `paint`, dirty propagation |
+
+---
+
+## Module 03 — Widget Lifecycle & Local State
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 3.1 | [StatelessWidget vs StatefulWidget Internals](./03-widget-lifecycle-local-state/01-stateless-vs-stateful-internals.md) | Element giữ State, Widget là factory |
+| 3.2 | [Vòng Đời Đầy Đủ của StatefulWidget](./03-widget-lifecycle-local-state/02-state-full-lifecycle.md) | 7 phase lifecycle, thứ tự super() |
+| 3.3 | [setState — Dùng Đúng Cách](./03-widget-lifecycle-local-state/03-setstate-correct-usage.md) | dirty marking, tách widget giảm scope |
+| 3.4 | [Ticker & AnimationController Lifecycle](./03-widget-lifecycle-local-state/04-ticker-animationcontroller-lifecycle.md) | TickerProvider, dispose bắt buộc |
+| 3.5 | [Widget Rebuild Optimization](./03-widget-lifecycle-local-state/05-widget-rebuild-optimization.md) | `const`, RepaintBoundary, Builder scope |
+
+---
+
+## Module 04 — Layout Engine
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 4.1 | [Constraints Go Down, Sizes Go Up](./04-layout-engine/01-constraints-go-down-sizes-go-up.md) | Quy tắc vàng, single-pass layout |
+| 4.2 | [BoxConstraints: Tight / Loose / Unbounded](./04-layout-engine/02-box-constraints-tight-loose-unbounded.md) | 3 loại constraint, debug overflow |
+| 4.3 | [Flex Layouts: Row, Column, Expanded](./04-layout-engine/03-flex-layouts-row-column.md) | MainAxis, CrossAxis, Flexible |
+| 4.4 | [Stack, Positioned & Overlays](./04-layout-engine/04-stack-positioned-overlays.md) | Coordinate system, LayoutBuilder |
+| 4.5 | [Scrollables & Virtualization](./04-layout-engine/05-scrollables-virtualization.md) | Slivers, Viewport, ScrollController |
+| 4.6 | [Responsive & Adaptive Layouts](./04-layout-engine/06-responsive-adaptive-layouts.md) | MediaQuery, breakpoints, LayoutBuilder |
+
+---
+
+## Module 05 — Data Passing & InheritedWidget
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 5.1 | [Prop Drilling & InheritedWidget](./05-data-passing-inherited-widget/01-prop-drilling-and-inheritedwidget.md) | Bài toán, broadcast data, `updateShouldNotify` |
+| 5.2 | [dependOnInheritedWidgetOfExactType](./05-data-passing-inherited-widget/02-dependoninheritedwidgetofexacttype.md) | Dependency registration, rebuild mechanics |
+| 5.3 | [InheritedNotifier & ChangeNotifier](./05-data-passing-inherited-widget/03-inheritednotifier-changenotifier.md) | `ValueNotifier`, `ListenableBuilder` |
+| 5.4 | [Provider Pattern Foundation](./05-data-passing-inherited-widget/04-provider-pattern-foundation.md) | Provider package = InheritedWidget wrapper |
+
+---
+
+## Module 06 — Navigation & Routing Basics
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 6.1 | [Navigator 1.0 — Push & Pop](./06-navigation-routing-basics/01-navigator-1-push-pop.md) | Stack, Routes, PopScope |
+| 6.2 | [Truyền & Nhận Data Qua Navigator](./06-navigation-routing-basics/02-passing-and-returning-data.md) | Type-safe args, `pop(result)` |
+| 6.3 | [Named Routes & OnGenerateRoute](./06-navigation-routing-basics/03-named-routes-generate-route.md) | `routes:` map vs `onGenerateRoute` |
+| 6.4 | [Triết Lý Declarative Routing](./06-navigation-routing-basics/04-declarative-routing-philosophy.md) | Navigator 2.0, GoRouter intro |
+
+---
+
+## Module 07 — Networking, Assets & Multimedia
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 7.1 | [Asset Management Pipeline](./07-networking-assets-multimedia/01-asset-management-pipeline.md) | `pubspec.yaml`, fonts, SVG, config JSON |
+| 7.2 | [HTTP Client Basics](./07-networking-assets-multimedia/02-http-client-basics.md) | `http` package, Dio, interceptors |
+| 7.3 | [JSON Serialization & Models](./07-networking-assets-multimedia/03-json-serialization-models.md) | `fromJson/toJson`, `copyWith`, immutable models |
+| 7.4 | [FutureBuilder & StreamBuilder](./07-networking-assets-multimedia/04-futurebuilder-streambuilder.md) | ConnectionState, snapshot, late Future |
+
+---
+
+## Module 08 — Animations Fundamentals ★ BONUS
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 8.1 | [Implicit Animations](./08-animations-fundamentals/01-implicit-animations.md) | AnimatedContainer, TweenAnimationBuilder |
+| 8.2 | [Explicit Animations & Controller](./08-animations-fundamentals/02-explicit-animations-controller.md) | AnimationController, Tween, CurvedAnimation |
+| 8.3 | [Hero & Page Transitions](./08-animations-fundamentals/03-hero-page-transitions.md) | Hero tag, PageRouteBuilder, SharedAxisTransition |
+| 8.4 | [Staggered Animations](./08-animations-fundamentals/04-staggered-animations.md) | Interval curve, drive() chaining |
+
+---
+
+## Module 09 — Forms & User Input ★ BONUS
+
+| Bài | File | Nội dung |
+|:---:|:---|:---|
+| 9.1 | [Gestures & Hit Testing](./09-forms-input-interaction/01-gestures-hittesting-gesturedetector.md) | Pointer events, gesture arena |
+| 9.2 | [TextField, Controller & Focus](./09-forms-input-interaction/02-textfields-controllers-focus.md) | TextEditingController, FocusNode |
+| 9.3 | [Form, FormState & Validation](./09-forms-input-interaction/03-form-formstate-validation.md) | `GlobalKey<FormState>`, validator |
+| 9.4 | [Keyboard Insets & Custom Input](./09-forms-input-interaction/04-keyboard-insets-custom-input.md) | viewInsets, custom `FormField<T>` |
+
+---
+
+## 📐 5-Part Article Blueprint
+
+Mọi chapter trong tập này đều tuân thủ cấu trúc 5 phần sau:
+
+```
+## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+  "Why it matters" trước, định nghĩa sau.
+  Bạn sẽ hiểu được gì sau bài này.
+
+## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+  Mermaid diagram / ASCII flow bắt buộc.
+  Trả lời "Tại sao Flutter/Dart làm vậy?"
+
+## Phần 3 — Code Mẫu Chuẩn Google
+  Dart 3+, Sound Null Safety, flutter_lints compliant.
+  Comment giải thích WHY không phải WHAT.
+  Material 3 mặc định.
+
+## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+  ❌ Anti-pattern + ✅ Đúng + lý do kỹ thuật.
+  Pitfall nào dẫn đến jank / leak / crash.
+
+## Phần 5 — Bài Tập Củng Cố Tư Duy
+  Challenge cụ thể, có hướng giải (không cho đáp án ngay).
+  Thử thách thẩm định kỹ thuật liên quan.
+```
+
+---
+
+## 🗺️ Lộ Trình Học Đề Xuất
 
 ```mermaid
 graph TD
-    P1["1. Everything is a Widget<br/>(Thành phần hóa UI qua Composition)"] --> Arch["Kiến Trúc Flutter Chuẩn Google"]
-    P2["2. Constraints Rulebook<br/>(Constraints down, Sizes up, Parent sets position)"] --> Arch
-    P3["3. The State Continuum<br/>(Ephemeral State vs App State)"] --> Arch
-    P4["4. Declarative UI Mindset<br/>(UI = f(state))"] --> Arch
+    subgraph phase1 ["Phase 1 — Nền Dart (Tuần 1)"]
+        M1_1["1.1 Null Safety"]
+        M1_2["1.2 OOP & Mixin"]
+        M1_3["1.3 Sealed & Records"]
+        M1_4["1.4 Event Loop & Future"]
+        M1_5["1.5 Streams"]
+        M1_6["1.6 Result Pattern"]
+        M1_1 --> M1_2 --> M1_3 --> M1_4 --> M1_5 --> M1_6
+    end
+
+    subgraph phase2 ["Phase 2 — Kiến Trúc Flutter (Tuần 2)"]
+        M2["Module 02: 3 Trees + BuildContext + Keys"]
+        M3["Module 03: Lifecycle + setState + Rebuild Opt"]
+        M2 --> M3
+    end
+
+    subgraph phase3 ["Phase 3 — Layout & Data (Tuần 3)"]
+        M4["Module 04: Layout Engine"]
+        M5["Module 05: InheritedWidget + Provider"]
+        M4 --> M5
+    end
+
+    subgraph phase4 ["Phase 4 — Navigation & Networking (Tuần 4)"]
+        M6["Module 06: Navigation"]
+        M7["Module 07: Networking + Assets"]
+        M6 --> M7
+    end
+
+    subgraph bonus ["Bonus — UI Polish"]
+        M8["Module 08: Animations"]
+        M9["Module 09: Forms & Input"]
+    end
+
+    phase1 --> phase2 --> phase3 --> phase4 --> bonus
 ```
 
-1. **Composition over Inheritance (Hợp thành thay vì Kế thừa)**:
-   - Trong Flutter, bạn không kế thừa `Button` để đổi màu hay thêm icon. Bạn bọc `Text` và `Icon` vào bên trong `Row`, rồi đặt trong `InkWell` hoặc `ElevatedButton`.
-   - Các widget được thiết kế siêu nhỏ, đơn nhiệm (Single Responsibility), dễ tái sử dụng và cực kỳ nhẹ (lightweight immutable configurations).
-
-2. **Quy Tắc Bất Biến Về Layout (The Immutable Layout Rule)**:
-   > *"Constraints go down. Sizes go up. Parent sets position."*  
-   > *(Ràng buộc truyền xuống. Kích thước báo lên. Cha quyết định vị trí con.)*
-   - Widget con không bao giờ có thể tự ý có kích thước bất kỳ; kích thước của nó luôn phải nằm trong khoảng ràng buộc (min/max width/height) mà widget cha áp đặt.
-
-3. **Mô Hình UI Khai Báo (Declarative UI)**:
-   - Công thức kinh điển: $$\text{UI} = f(\text{state})$$
-   - Bạn không gọi `button.setText("...")` hay `view.setVisibility(GONE)`. Khi state thay đổi, Flutter tự động dựng lại cây Widget tương ứng với state mới.
-
-4. **Sự Tách Biệt Giữa Cấu Hình và Trạng Thái**:
-   - Widget là cấu hình **bất biến (`immutable`)** được tạo và hủy liên tục với chi phí cực rẻ.
-   - Trạng thái lâu dài được lưu trữ an toàn trong đối tượng `State` riêng biệt, không bị mất đi khi widget rebuild.
-
 ---
 
-## 🗺️ Mục Lục 11 Chuyên Đề Flutter Fundamentals
-
-| Module | Tên Chuyên Đề & Bài Học Chi Tiết | Trạng Thái |
-| :---: | :--- | :---: |
-| **01** | [**Dart 3 Foundations For Flutter**](./01-dart-foundations-for-flutter/)<br>• [Bài 01: Sound Null Safety & Hệ Thống Kiểu](./01-dart-foundations-for-flutter/01-sound-null-safety-and-types.md)<br>• [Bài 02: Classes, Constructors & Mixins](./01-dart-foundations-for-flutter/02-classes-constructors-mixins.md)<br>• [Bài 03: Modern Dart 3 Records & Patterns](./01-dart-foundations-for-flutter/03-modern-dart-records-patterns.md)<br>• [Bài 04: Collections & Toán Tử UI](./01-dart-foundations-for-flutter/04-functional-collections-operators.md)<br>• [Bài 05: Asynchronous Dart: Futures & Streams](./01-dart-foundations-for-flutter/05-asynchronous-dart-futures-streams.md)<br>• [Bài 06: Extension Methods, Equality & Generics](./01-dart-foundations-for-flutter/06-extensions-equality-and-generics.md) | ✅ Hoàn thành |
-| **02** | [**Widget Architecture & Lifecycle**](./02-widget-architecture-and-lifecycle/)<br>• [Bài 01: Tính Bất Biến & Cây Widget](./02-widget-architecture-and-lifecycle/01-immutability-and-widget-tree.md)<br>• [Bài 02: StatelessWidget vs StatefulWidget](./02-widget-architecture-and-lifecycle/02-stateless-vs-stateful-internals.md)<br>• [Bài 03: Vòng Đời Chi Tiết Của State](./02-widget-architecture-and-lifecycle/03-state-lifecycle-in-depth.md)<br>• [Bài 04: Bản Chất Của BuildContext](./02-widget-architecture-and-lifecycle/04-buildcontext-deep-dive.md)<br>• [Bài 05: Cơ Chế Của Keys](./02-widget-architecture-and-lifecycle/05-keys-mechanics-and-usecases.md)<br>• [Bài 06: Tối Ưu Rebuild & Anti-Patterns](./02-widget-architecture-and-lifecycle/06-widget-rebuild-optimization-and-anti-patterns.md) | ✅ Hoàn thành |
-| **03** | [**Flutter Layout System Mastery**](./03-flutter-layout-system-mastery/)<br>• [Bài 01: Quy Tắc Vàng: Constraints Go Down...](./03-flutter-layout-system-mastery/01-the-constraints-rulebook.md)<br>• [Bài 02: Giải Phẫu BoxConstraints](./03-flutter-layout-system-mastery/02-box-constraints-tight-loose-unbounded.md)<br>• [Bài 03: Flex Layouts: Row, Column, Expanded](./03-flutter-layout-system-mastery/03-flex-layouts-row-column-expanded.md)<br>• [Bài 04: Stack, Positioned & Xếp Lớp](./03-flutter-layout-system-mastery/04-stack-positioned-and-overlays.md)<br>• [Bài 05: Chẩn Đoán & Trị Lỗi Layout Kinh Điển](./03-flutter-layout-system-mastery/05-diagnosing-and-fixing-layout-errors.md)<br>• [Bài 06: Thiết Kế Thích Ứng Responsive & Adaptive](./03-flutter-layout-system-mastery/06-responsive-and-adaptive-layouts.md)<br>• [Bài 07: Intrinsics & Custom Layout Delegates](./03-flutter-layout-system-mastery/07-intrinsics-and-custom-layout-delegates.md) | ✅ Hoàn thành |
-| **04** | [**Scrollables & Slivers In-Depth**](./04-scrollables-and-slivers-in-depth/)<br>• [Bài 01: Cơ Chế Cuộn & ScrollPhysics](./04-scrollables-and-slivers-in-depth/01-scroll-mechanics-controller-physics.md)<br>• [Bài 02: Ảo Hóa Viewport Với ListView & GridView](./04-scrollables-and-slivers-in-depth/02-listview-and-gridview-virtualization.md)<br>• [Bài 03: SingleChildScrollView & Form Cuộn](./04-scrollables-and-slivers-in-depth/03-single-child-scroll-view-patterns.md)<br>• [Bài 04: CustomScrollView & Hiệu Ứng Slivers](./04-scrollables-and-slivers-in-depth/04-custom-scroll-view-and-slivers.md)<br>• [Bài 05: NestedScrollView & Kỹ Thuật Phối Hợp Cuộn](./04-scrollables-and-slivers-in-depth/05-nested-scroll-view-and-sliver-overlap-absorber.md) | ✅ Hoàn thành |
-| **05** | [**Material 3 Design & Theming**](./05-material-3-design-and-theming/)<br>• [Bài 01: Material 3 & ColorScheme.fromSeed](./05-material-3-design-and-theming/01-material-3-design-tokens.md)<br>• [Bài 02: Kiểu Chữ Typography & TextTheme](./05-material-3-design-and-theming/02-typography-and-custom-text-themes.md)<br>• [Bài 03: Dark/Light Mode & ThemeExtension](./05-material-3-design-and-theming/03-dark-light-mode-and-theme-extensions.md)<br>• [Bài 04: Quản Lý Assets, SVG & Tối Ưu RAM Ảnh](./05-material-3-design-and-theming/04-asset-image-and-svg-pipeline.md)<br>• [Bài 05: Tùy Biến Giao Diện Linh Kiện & WidgetState](./05-material-3-design-and-theming/05-component-themes-and-widget-state.md) | ✅ Hoàn thành |
-| **06** | [**User Interactions, Inputs & Forms**](./06-user-interactions-inputs-and-forms/)<br>• [Bài 01: Cử Chỉ Hit-Testing & InkWell](./06-user-interactions-inputs-and-forms/01-gestures-hit-testing-and-inkwell.md)<br>• [Bài 02: TextField, Controllers & FocusNode](./06-user-interactions-inputs-and-forms/02-text-fields-and-controllers.md)<br>• [Bài 03: Form & TextFormField Validation](./06-user-interactions-inputs-and-forms/03-form-validation-and-formstate.md)<br>• [Bài 04: Xử Lý Bàn Phím Ảo & ViewInsets](./06-user-interactions-inputs-and-forms/04-keyboard-handling-and-insets.md)<br>• [Bài 05: TextInputFormatter & Custom FormField](./06-user-interactions-inputs-and-forms/05-input-formatters-and-custom-form-fields.md) | ✅ Hoàn thành |
-| **07** | [**Navigation, Routing & Deep Linking**](./07-navigation-routing-and-deeplinking/)<br>• [Bài 01: Điều Hướng Mệnh Lệnh (Navigator 1.0)](./07-navigation-routing-and-deeplinking/01-imperative-navigation-navigator-1.md)<br>• [Bài 02: Nút Back Với PopScope](./07-navigation-routing-and-deeplinking/02-handling-back-events-with-popscope.md)<br>• [Bài 03: Điều Hướng Khai Báo Với GoRouter](./07-navigation-routing-and-deeplinking/03-declarative-routing-with-gorouter.md)<br>• [Bài 04: Deep Linking & Xử Lý URL Web](./07-navigation-routing-and-deeplinking/04-deep-linking-and-url-strategies.md) | ✅ Hoàn thành |
-| **08** | [**State Management Core Fundamentals**](./08-state-management-core-fundamentals/)<br>• [Bài 01: Ephemeral State vs App State](./08-state-management-core-fundamentals/01-ephemeral-vs-app-state-mental-model.md)<br>• [Bài 02: ValueNotifier & ListenableBuilder](./08-state-management-core-fundamentals/02-listenable-and-valuenotifier.md)<br>• [Bài 03: Bản Chất Gốc Rễ: InheritedWidget](./08-state-management-core-fundamentals/03-inherited-widget-deep-dive.md)<br>• [Bài 04: Mô Hình Provider & ChangeNotifier](./08-state-management-core-fundamentals/04-provider-and-changenotifier-pattern.md)<br>• [Bài 05: Cầu Nối Lên Dự Án Lớn: BLoC & Cubit](./08-state-management-core-fundamentals/05-transition-to-bloc-and-cubit.md) | ✅ Hoàn thành |
-| **09** | [**Networking, Serialization & Async UI**](./09-networking-serialization-and-async-ui/)<br>• [Bài 01: Kiến Trúc Mạng Với Dio & Interceptors](./09-networking-serialization-and-async-ui/01-http-client-and-dio-architecture.md)<br>• [Bài 02: Tuần Tự Hóa JSON & Model Freezed](./09-networking-serialization-and-async-ui/02-json-serialization-and-immutable-models.md)<br>• [Bài 03: FutureBuilder, StreamBuilder & Cạm Bẫy Build](./09-networking-serialization-and-async-ui/03-futurebuilder-and-streambuilder.md)<br>• [Bài 04: Chiến Lược Lưu Trữ Cục Bộ (Local Storage)](./09-networking-serialization-and-async-ui/04-local-persistence-strategies.md) | ✅ Hoàn thành |
-| **10** | [**Animations Fundamentals**](./10-animations-fundamentals/)<br>• [Bài 01: Hoạt Họa Tự Động (Implicit Animations)](./10-animations-fundamentals/01-implicit-animations.md)<br>• [Bài 02: Hoạt Họa Tường Minh (AnimationController)](./10-animations-fundamentals/02-explicit-animations-controller.md)<br>• [Bài 03: Hiệu Ứng Bay Hero & Chuyển Cảnh](./10-animations-fundamentals/03-hero-and-page-transitions.md) | ✅ Hoàn thành |
-| **11** | [**Testing & Debugging The Google Way**](./11-testing-and-debugging-the-google-way/)<br>• [Bài 01: Kiểm Thử Đơn Vị (Unit Testing) Với Mocktail](./11-testing-and-debugging-the-google-way/01-unit-testing-business-logic.md)<br>• [Bài 02: Kiểm Thử Giao Diện Với WidgetTester](./11-testing-and-debugging-the-google-way/02-widget-testing-with-widget-tester.md)<br>• [Bài 03: Gỡ Lỗi & Tối Ưu Với Flutter DevTools](./11-testing-and-debugging-the-google-way/03-flutter-devtools-and-profiling.md) | ✅ Hoàn thành |
-
----
-
-## 🎯 Hướng Dẫn Tiếp Cận & Học Hiệu Quả
-
-1. **Bắt đầu từ Module 01 đến Module 04**: Đây là nền tảng sống còn. Không hiểu rõ Constraints và Vòng đời Widget thì việc học State Management sẽ rất dễ gây bug và rebuild thừa thãi.
-2. **Thực hành với code mẫu**: Mỗi bài viết đều có code mẫu chuẩn Dart 3 và Flutter mới nhất. Hãy copy và chạy trực tiếp trên simulator hoặc web để quan sát hành vi.
-3. **Đọc kỹ mục Cạm Bẫy (Pitfalls)**: Nơi tổng hợp các lỗi sai phổ biến mà 90% lập trình viên thường vấp phải trong dự án thực tế.
+*Bắt đầu tại [Bài 1.1: Type System & Sound Null Safety](./01-dart-engine-language-fundamentals/01-type-system-sound-null-safety.md).*
