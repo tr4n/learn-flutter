@@ -1,67 +1,138 @@
-# Bài 7.3 — JSON Serialization & Models
+# Bài 7.3 — Chuyển Đổi Dữ Liệu & Mô Hình Hóa JSON Trong Dart/Flutter
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
-
-### Tại sao bài này quan trọng?
-
-JSON là ngôn ngữ chung giữa Flutter app và REST API. Nhưng từ JSON raw đến Dart model type-safe, cần:
-
-```dart
-// Raw JSON từ API:
-// {"id": "abc", "name": "Flutter Book", "price": 99.0, "tags": ["dart", "flutter"]}
-
-// Dart model:
-final product = Product.fromJson(jsonDecode(response.body));
-print(product.name.toUpperCase()); // Type-safe!
-```
-
-Bài này dùng **manual serialization** (không codegen) để bạn hiểu cơ chế. Production app thường dùng `json_serializable` để tự động generate code.
-
-### Bạn sẽ hiểu được sau bài này:
-- `jsonDecode`, `jsonEncode` — parse và encode JSON
-- `fromJson` factory constructor pattern
-- `toJson()` method
-- Immutable model với `const` constructor và `copyWith`
-- Parse nested JSON một cách an toàn
+## Tài Liệu Tham Khảo Chính Thức
+- [Flutter Documentation: JSON and serialization](https://docs.flutter.dev/data-and-backend/serialization/json)
+- [Dart Documentation: Decoding and encoding JSON (dart:convert)](https://dart.dev/guides/libraries/library-tour#dartconvert---decoding-and-encoding-json-utf-8-and-more)
+- [Dart package:json_serializable Documentation](https://pub.dev/packages/json_serializable)
+- [Dart package:freezed Documentation](https://pub.dev/packages/freezed)
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 1 — Khái Niệm & Các Phương Pháp Tiếp Cận (Architecture & Approaches)
 
-### JSON → Dart Type Mapping
+### 1.1 — Luồng Chuyển Đổi Dữ Liệu JSON Trong Flutter
+
+JSON (JavaScript Object Notation) là định dạng dữ liệu chuẩn trong giao tiếp RESTful API. Tuy nhiên, JSON là định dạng phi cấu trúc kiểu tĩnh (dynamically typed text). Để đảm bảo tính toàn vẹn dữ liệu trong hệ thống kiểu tĩnh của Dart, dữ liệu nhận về cần trải qua quy trình giải mã và ánh xạ:
 
 ```
-JSON          → Dart
-null          → null
-true/false    → bool
-number (int)  → int
-number (float) → double
-"string"      → String
-[...]         → List<dynamic>
-{...}         → Map<String, dynamic>
-```
-
-```mermaid
-flowchart LR
-    API["API Response\nString (JSON)"]
-    Decode["jsonDecode()\nString → dynamic\n(thực ra là\nMap<String, dynamic>)"]
-    Cast["Cast an toàn\nas Map<String, dynamic>"]
-    fromJson["Model.fromJson()\nMap<String, dynamic> → Model"]
-    Model["Dart Model\n(type-safe)"]
-
-    API --> Decode --> Cast --> fromJson --> Model
+┌────────────────────────────────────────────────────────────────────────┐
+│ LUỒNG XỬ LÝ DỮ LIỆU JSON                                              │
+│                                                                        │
+│ 1. API Response Body (String)                                          │
+│    '{"id": "usr_01", "name": "Flutter Developer", "price": 99.0}'     │
+│      │                                                                 │
+│      ▼ (dart:convert: jsonDecode)                                      │
+│ 2. Dynamic Object Structure                                            │
+│    Map<String, dynamic>                                                │
+│      │                                                                 │
+│      ▼ (Model.fromJson factory)                                        │
+│ 3. Type-Safe Dart Domain Model                                         │
+│    User(id: 'usr_01', name: 'Flutter Developer', price: 99.0)          │
+│      │                                                                 │
+│      ▼                                                                 │
+│ 4. Sử dụng an toàn tại UI & Business Logic                             │
+│    Text(user.name) // Trình biên dịch kiểm tra kiểu tĩnh lúc compile   │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 1.2 — So Sánh 3 Phương Pháp Mô Hình Hóa JSON
 
-### 3.1 — Model cơ bản với fromJson/toJson
+Theo tài liệu chính thức của Flutter, có 3 phương pháp chính để ánh xạ JSON sang Dart Model:
+
+#### 1. Thủ công (Manual Serialization bằng `dart:convert`)
+- **Cách thức**: Tự định nghĩa constructor `factory Model.fromJson(Map<String, dynamic> json)` và phương thức `Map<String, dynamic> toJson()`.
+- **Ưu điểm**: Không phụ thuộc vào thư viện bên ngoài, không cần chạy công cụ sinh mã (`build_runner`), tốc độ build nhanh.
+- **Hạn chế**: Tốn nhiều dòng code lặp đi lặp lại (boilerplate), dễ xảy ra lỗi chính tả khi truy xuất chuỗi khóa (key strings), bảo trì phức tạp khi cấu trúc JSON thay đổi.
+- **Phù hợp với**: Các ứng dụng có quy mô nhỏ hoặc số lượng model hạn chế (dưới 5-10 models).
+
+#### 2. Tự động hóa bằng `package:json_serializable`
+- **Cách thức**: Đánh dấu các lớp dữ liệu với annotation `@JsonSerializable()`. Công cụ `build_runner` sẽ phân tích cú pháp tĩnh và tự động sinh ra file `*.g.dart` chứa logic `_$ModelFromJson` và `_$ModelToJson`.
+- **Ưu điểm**: Hạn chế sai sót chính tả, hỗ trợ cấu hình ánh xạ tên trường (`@JsonKey(name: '...')`), hỗ trợ chuyển đổi tùy biến (`JsonConverter`).
+- **Hạn chế**: Vẫn cần tự viết phương thức `copyWith`, toán tử so sánh `operator ==` và `hashCode` nếu cần so sánh giá trị đối tượng.
+- **Phù hợp với**: Ứng dụng quy mô trung bình đến lớn, các dự án có cấu trúc dữ liệu nhiều trường phức tạp.
+
+#### 3. Mô hình hóa lớp dữ liệu bất biến bằng `package:freezed`
+- **Cách thức**: Sử dụng bộ sinh mã chuyên biệt cho Data Class, kết hợp `freezed_annotation` và `json_serializable`.
+- **Ưu điểm**: Tự động sinh toàn bộ: `fromJson`/`toJson`, `copyWith`, toán tử so sánh sâu (Deep Equality), `toString()`, và hỗ trợ Union Types / Sealed Classes kết hợp với Pattern Matching.
+- **Hạn chế**: Phụ thuộc vào công cụ sinh mã của bên thứ ba, thời gian chạy `build_runner` ban đầu lâu hơn.
+- **Phù hợp với**: Các ứng dụng lớn, sử dụng kiến trúc phân tầng, quản lý trạng thái bằng BLoC, Riverpod hoặc State Pattern.
+
+#### Bảng so sánh tính năng kỹ thuật:
+
+| Tiêu Chí | Thủ Công (`dart:convert`) | `json_serializable` | `freezed` |
+| :--- | :--- | :--- | :--- |
+| **Yêu cầu build_runner** | Không | Có | Có |
+| **Tự động sinh fromJson/toJson** | Không (tự viết tay) | Có (`.g.dart`) | Có (kết hợp `json_serializable`) |
+| **Tự động sinh copyWith** | Không | Không | Có |
+| **So sánh giá trị (Deep Equality)** | Không (mặc định tham chiếu) | Không | Có (so sánh toàn bộ các trường) |
+| **Hỗ trợ Union Types / Sealed Class** | Không | Không | Có |
+| **Tính bất biến (Immutability)** | Cần tự đặt `final` | Cần tự đặt `final` | Tự động tạo cấu trúc immutable |
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động Cốt Lõi (Under the Hood)
+
+### 2.1 — Ánh Xạ Kiểu Dữ Liệu Giữa JSON và Dart VM
+
+Thư viện `dart:convert` ánh xạ các kiểu nguyên thủy của JSON sang Dart theo quy tắc:
+
+```
+JSON Value Type       ──► Dart VM Runtime Type
+───────────────────────────────────────────────
+null                  ──► Null
+true / false          ──► bool
+Số nguyên (vd: 42)    ──► int
+Số thực (vd: 3.14)    ──► double
+Chuỗi ký tự ("...")   ──► String
+Mảng danh sách ([...])──► List<dynamic>
+Đối tượng ({...})     ──► Map<String, dynamic>
+```
+
+> **Quy tắc quan trọng**: Trong chuỗi JSON, không có định dạng phân biệt giữa `int` và `double` mà chỉ có kiểu số chung (`number`). Khi máy chủ trả về `99`, Dart sẽ giải mã thành kiểu `int`. Nếu trường dữ liệu trong Dart được khai báo là `double` và lập trình viên ép kiểu trực tiếp `json['price'] as double`, Dart VM sẽ ném ra ngoại lệ `TypeError` tại runtime.
+
+---
+
+### 2.2 — Cơ Chế Hoạt Động Của `build_runner` Tại Build-Time
+
+Tại sao Flutter chọn phương pháp sinh mã nguồn tĩnh (Source Code Generation) thay vì sử dụng Reflection (`dart:mirrors`) như trong Java hoặc C#?
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ CƠ CHẾ SINH MÃ TĨNH BUILD-TIME CỦA BUILD_RUNNER                        │
+│                                                                        │
+│ 1. Lập trình viên viết mã nguồn: user.dart (@JsonSerializable)         │
+│      │                                                                 │
+│      ▼ (Chạy lệnh: dart run build_runner build)                         │
+│ 2. Analyzer phân tích cú pháp tĩnh (AST - Abstract Syntax Tree)        │
+│      │                                                                 │
+│      ▼                                                                 │
+│ 3. Generator tạo mã Dart thuần: user.g.dart (_$UserFromJson)           │
+│      │                                                                 │
+│      ▼                                                                 │
+│ 4. Flutter AOT Compiler (Ahead-Of-Time) biên dịch ra mã máy            │
+│    • Toàn bộ logic đã có sẵn dưới dạng mã nguồn Dart tĩnh              │
+│    • Không cần kiểm tra kiểu động tại Runtime                          │
+│    • Trình biên dịch tối ưu hóa kích thước (Tree-shaking hiệu quả)     │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Lý do loại bỏ Reflection (`dart:mirrors`)**: 
+  1. **Tối ưu hóa kích thước nhị phân (Binary Size & Tree-shaking)**: Trình biên dịch AOT của Dart cần biết chính xác những phương thức và trường nào được gọi để loại bỏ các đoạn mã dư thừa. Reflection đòi hỏi giữ lại toàn bộ siêu dữ liệu của chương trình, làm dung lượng ứng dụng tăng đột biến.
+  2. **Tốc độ thực thi (Performance)**: Việc đọc metadata qua Reflection tại runtime tiêu tốn CPU và bộ nhớ hơn nhiều so với việc gọi trực tiếp các hàm sinh sẵn tại build-time.
+
+---
+
+## Phần 3 — Triển Khai Thực Tế
+
+### 3.1 — Triển Khai Model Thủ Công (Manual Serialization)
+
+Cấu trúc một model thủ công an toàn, hỗ trợ kiểu số linh hoạt, kiểm tra giá trị null và cấu trúc lồng nhau:
 
 ```dart
 import 'dart:convert';
 
-// Immutable model (best practice)
 class Product {
   final String id;
   final String name;
@@ -81,37 +152,39 @@ class Product {
     required this.createdAt,
   });
 
-  // Factory constructor fromJson — parse từ Map
+  // Factory constructor phân tích từ Map an toàn
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
       id: json['id'] as String,
       name: json['name'] as String,
-      price: (json['price'] as num).toDouble(), // num vì có thể là int hoặc double
-      imageUrl: json['image_url'] as String?,   // Nullable — safe cast
+      // Ép kiểu qua num trước để tiếp nhận an toàn cả int và double
+      price: (json['price'] as num).toDouble(),
+      imageUrl: json['image_url'] as String?,
       tags: (json['tags'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ?? [], // Default empty list nếu null
+              ?.map((item) => item as String)
+              .toList() ??
+          const [],
       category: ProductCategory.fromJson(
         json['category'] as Map<String, dynamic>,
       ),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 
-  // toJson — serialize về Map
+  // Chuyển đổi ngược lại Map để gửi lên API
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'name': name,
       'price': price,
-      if (imageUrl != null) 'image_url': imageUrl, // Chỉ include nếu không null
+      if (imageUrl != null) 'image_url': imageUrl,
       'tags': tags,
       'category': category.toJson(),
       'created_at': createdAt.toIso8601String(),
     };
   }
 
-  // copyWith — immutable update pattern
   Product copyWith({
     String? id,
     String? name,
@@ -132,9 +205,8 @@ class Product {
     );
   }
 
-  // Equality để detect changes (dùng trong updateShouldNotify, ==)
   @override
-  bool operator==(Object other) =>
+  bool operator ==(Object other) =>
       identical(this, other) ||
       other is Product &&
           runtimeType == other.runtimeType &&
@@ -144,582 +216,312 @@ class Product {
 
   @override
   int get hashCode => Object.hash(id, name, price);
-
-  @override
-  String toString() => 'Product(id: $id, name: $name, price: $price)';
 }
 
 class ProductCategory {
   final String id;
-  final String name;
+  final String title;
 
-  const ProductCategory({required this.id, required this.name});
+  const ProductCategory({required this.id, required this.title});
 
   factory ProductCategory.fromJson(Map<String, dynamic> json) {
     return ProductCategory(
       id: json['id'] as String,
-      name: json['name'] as String,
+      title: json['title'] as String,
     );
   }
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+  Map<String, dynamic> toJson() => {'id': id, 'title': title};
 }
 ```
 
-### 3.2 — Parse List và Nested Objects an toàn
+---
 
-```dart
-// Parse từ API response
-class ProductApiResponse {
-  final List<Product> items;
-  final int total;
-  final int page;
-  final int pageSize;
-  final bool hasMore;
+### 3.2 — Triển Khai Với `package:json_serializable`
 
-  const ProductApiResponse({
-    required this.items,
-    required this.total,
-    required this.page,
-    required this.pageSize,
-    required this.hasMore,
-  });
+Cấu hình các annotation tự động sinh mã và xử lý bộ chuyển đổi dữ liệu tùy biến:
 
-  factory ProductApiResponse.fromJson(Map<String, dynamic> json) {
-    // Parse nested list — quan trọng: cast đúng type
-    final rawItems = json['items'];
-    final List<Product> items;
+#### 1. Khai báo dependencies trong `pubspec.yaml`:
+```yaml
+dependencies:
+  json_annotation: ^4.9.0
 
-    if (rawItems is List) {
-      items = rawItems
-          .whereType<Map<String, dynamic>>() // Filter ra items không phải Map
-          .map(Product.fromJson)
-          .toList();
-    } else {
-      items = [];
-    }
-
-    return ProductApiResponse(
-      items: items,
-      total: json['total'] as int? ?? 0,
-      page: json['page'] as int? ?? 0,
-      pageSize: json['page_size'] as int? ?? 20,
-      hasMore: json['has_more'] as bool? ?? false,
-    );
-  }
-}
-
-// Sử dụng trong repository
-Future<ProductApiResponse> fetchProducts({int page = 0}) async {
-  final response = await _client.get('/v1/products?page=$page');
-  final json = response.data as Map<String, dynamic>;
-  return ProductApiResponse.fromJson(json);
-}
+dev_dependencies:
+  build_runner: ^2.4.9
+  json_serializable: ^6.8.0
 ```
 
-### 3.3 — Type-safe JSON parsing utilities
-
+#### 2. Định nghĩa Model và Custom Converter:
 ```dart
-// Extension để parse JSON an toàn, không throw
-extension JsonExt on Map<String, dynamic> {
-  String getString(String key, {String defaultValue = ''}) {
-    return (this[key] as String?) ?? defaultValue;
-  }
+import 'package:json_annotation/json_annotation.dart';
 
-  int getInt(String key, {int defaultValue = 0}) {
-    return (this[key] as int?) ?? defaultValue;
-  }
+part 'user_profile.g.dart';
 
-  double getDouble(String key, {double defaultValue = 0}) {
-    return (this[key] as num?)?.toDouble() ?? defaultValue;
-  }
-
-  bool getBool(String key, {bool defaultValue = false}) {
-    return (this[key] as bool?) ?? defaultValue;
-  }
-
-  DateTime? getDateTime(String key) {
-    final raw = this[key] as String?;
-    if (raw == null) return null;
-    return DateTime.tryParse(raw);
-  }
-
-  List<T> getList<T>(String key, T Function(dynamic) transform) {
-    final raw = this[key];
-    if (raw is! List) return [];
-    return raw.map(transform).toList();
-  }
-}
-
-// Model dùng extension — much cleaner
+@JsonSerializable(explicitToJson: true)
 class UserProfile {
   final String id;
-  final String name;
-  final String email;
-  final int age;
-  final bool isPremium;
-  final DateTime? lastSeen;
-  final List<String> roles;
+
+  @JsonKey(name: 'full_name')
+  final String fullName;
+
+  @JsonKey(defaultValue: 'user')
+  final String role;
+
+  @JsonKey(name: 'created_at')
+  @EpochDateTimeConverter()
+  final DateTime createdAt;
 
   const UserProfile({
     required this.id,
-    required this.name,
-    required this.email,
-    required this.age,
-    required this.isPremium,
-    this.lastSeen,
-    required this.roles,
+    required this.fullName,
+    required this.role,
+    required this.createdAt,
   });
 
-  factory UserProfile.fromJson(Map<String, dynamic> json) {
-    return UserProfile(
-      id: json.getString('id'),
-      name: json.getString('name', defaultValue: 'Unknown'),
-      email: json.getString('email'),
-      age: json.getInt('age'),
-      isPremium: json.getBool('is_premium'),
-      lastSeen: json.getDateTime('last_seen'),
-      roles: json.getList('roles', (r) => r as String),
-    );
-  }
+  factory UserProfile.fromJson(Map<String, dynamic> json) =>
+      _$UserProfileFromJson(json);
+
+  Map<String, dynamic> toJson() => _$UserProfileToJson(this);
+}
+
+// Bộ chuyển đổi tùy biến từ Timestamp (milliseconds) sang DateTime
+class EpochDateTimeConverter implements JsonConverter<DateTime, int> {
+  const EpochDateTimeConverter();
+
+  @override
+  DateTime fromJson(int json) => DateTime.fromMillisecondsSinceEpoch(json);
+
+  @override
+  int toJson(DateTime object) => object.millisecondsSinceEpoch;
 }
 ```
 
-### 3.4 — encode/decode và string conversion
-
-```dart
-class JsonHelper {
-  // Encode model → JSON string
-  static String encode(Object model) {
-    if (model is Product) {
-      return jsonEncode(model.toJson());
-    }
-    throw ArgumentError('Unknown model type: ${model.runtimeType}');
-  }
-
-  // Decode JSON string → Map
-  static Map<String, dynamic> decode(String jsonString) {
-    final dynamic decoded = jsonDecode(jsonString);
-    if (decoded is! Map<String, dynamic>) {
-      throw FormatException('Expected JSON object, got ${decoded.runtimeType}');
-    }
-    return decoded;
-  }
-
-  // Safe decode — không throw
-  static Map<String, dynamic>? tryDecode(String jsonString) {
-    try {
-      return decode(jsonString);
-    } on FormatException {
-      return null;
-    }
-  }
-}
-
-// Lưu model vào SharedPreferences
-Future<void> saveProduct(Product product) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('last_viewed_product', jsonEncode(product.toJson()));
-}
-
-// Load model từ SharedPreferences
-Future<Product?> loadLastProduct() async {
-  final prefs = await SharedPreferences.getInstance();
-  final jsonStr = prefs.getString('last_viewed_product');
-  if (jsonStr == null) return null;
-
-  final json = JsonHelper.tryDecode(jsonStr);
-  if (json == null) return null;
-
-  return Product.fromJson(json);
-}
+Lệnh thực thi sinh mã:
+```bash
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ---
 
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+### 3.3 — Triển Khai Data Class Bất Biến Với `package:freezed`
 
-### ❌ Anti-pattern 1: Không cast type — dùng dynamic
+`freezed` cung cấp giải pháp khai báo model ngắn gọn, tự động tạo `copyWith`, deep equality và hỗ trợ mô hình Union Types (Sealed Classes):
 
+#### 1. Khai báo dependencies trong `pubspec.yaml`:
+```yaml
+dependencies:
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+dev_dependencies:
+  build_runner: ^2.4.9
+  freezed: ^2.5.2
+  json_serializable: ^6.8.0
+```
+
+#### 2. Khai báo Model bất biến:
 ```dart
-// ❌ Nguy hiểm: Không có type check → runtime crash
-factory Product.fromJson(dynamic json) {
-  return Product(
-    id: json['id'],           // dynamic → có thể null, có thể wrong type
-    name: json['name'],       // Không có compile-time check
-    price: json['price'],     // int? double? String? → crash khi dùng
-  );
-}
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-// ✅ Đúng: Cast tường minh
-factory Product.fromJson(Map<String, dynamic> json) {
-  return Product(
-    id: json['id'] as String,       // Explicit cast → rõ ràng
-    name: json['name'] as String,
-    price: (json['price'] as num).toDouble(), // num → double an toàn
-  );
-}
-```
+part 'order.freezed.dart';
+part 'order.g.dart';
 
-### ❌ Anti-pattern 2: Mutable model — fields không final
-
-```dart
-// ❌ Sai: Mutable model → unexpected mutation, khó debug
-class Product {
-  String id;   // Non-final → có thể thay đổi bất kỳ lúc nào!
-  String name;
-  double price;
-}
-
-// ✅ Đúng: Immutable model với copyWith
-class Product {
-  final String id;
-  final String name;
-  final double price;
-
-  const Product({required this.id, required this.name, required this.price});
-
-  Product copyWith({String? id, String? name, double? price}) => Product(
-    id: id ?? this.id,
-    name: name ?? this.name,
-    price: price ?? this.price,
-  );
-}
-```
-
-### ❌ Anti-pattern 3: Parse trong Widget build()
-
-```dart
-// ❌ Sai: Parse JSON trong build() → expensive CPU mỗi rebuild
-Widget build(BuildContext context) {
-  final product = Product.fromJson(jsonDecode(rawJson)); // Parse mỗi build!
-  return Text(product.name);
-}
-
-// ✅ Đúng: Parse một lần trong initState hoặc repository
-// Truyền model object (đã parse) vào widget
-```
-
----
-
-## Phần 5 — Bài Tập Củng Cố Tư Duy
-
-### Challenge: Parse Nested JSON API Response
-
-**API Response (JSONPlaceholder):**
-```json
-{
-  "userId": 1,
-  "id": 1,
-  "title": "sunt aut facere repellat...",
-  "body": "quia et suscipit..."
-}
-```
-
-**Nhiệm vụ:**
-1. Tạo `Post` model với `fromJson/toJson/copyWith`
-2. Fetch 100 posts từ `jsonplaceholder.typicode.com/posts`
-3. Parse tất cả thành `List<Post>`
-4. Tạo `PostListResponse` với total count
-
-**Mở rộng:**
-- Thêm nested `User` object (fetch `/users/:id`)
-- Cache posts vào SharedPreferences
-- Implement offline-first: hiển thị cache trước, load fresh sau
-
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
-
----
-
-#### Q1 [Junior] — "Sự khác biệt giữa manual serialization và `json_serializable`?"
-
-**Trả lời chuẩn:**
-
-| | Manual | `json_serializable` | `freezed` |
-|---|---|---|---|
-| **Boilerplate** | Nhiều | Ít (generated) | Ít nhất |
-| **build_runner** | Không | Cần | Cần |
-| **copyWith** | Tự viết | Tự viết | Generated |
-| **Equality** | Tự viết | Tự viết | Generated |
-| **Union types** | Không | Không | Có |
-| **Learning curve** | Thấp | Trung bình | Cao |
-
-```dart
-// Manual — dễ hiểu, nhiều code
-class User {
-  final String id;
-  final String name;
-  
-  factory User.fromJson(Map<String, dynamic> json) => User(
-    id: json['id'] as String,
-    name: json['name'] as String,
-  );
-  
-  Map<String, dynamic> toJson() => {'id': id, 'name': name};
-}
-
-// json_serializable — generate fromJson/toJson
-@JsonSerializable()
-class User {
-  final String id;
-  final String name;
-  
-  factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
-  Map<String, dynamic> toJson() => _$UserToJson(this);
-}
-// Chạy: dart run build_runner build
-```
-
----
-
-#### Q2 [Junior] — "Tại sao model nên immutable? `copyWith` giúp gì?"
-
-**Trả lời chuẩn:**
-
-Immutable model có **3 lợi ích** chính:
-
-**1. Dễ track changes:** Mỗi thay đổi state tạo object mới → so sánh `old != new` dễ dàng → Flutter/Provider biết khi nào cần rebuild.
-
-**2. Thread-safe:** Immutable objects không cần synchronization — multiple Isolates có thể đọc cùng object mà không có race condition.
-
-**3. Predictable state:** Không ai có thể "accidentally" thay đổi model từ chỗ khác.
-
-```dart
-// Immutable model với copyWith
-class User {
-  final String id;
-  final String name;
-  final String email;
-  
-  const User({required this.id, required this.name, required this.email});
-  
-  // Tạo copy với một số field thay đổi
-  User copyWith({String? id, String? name, String? email}) => User(
-    id: id ?? this.id,
-    name: name ?? this.name,
-    email: email ?? this.email,
-  );
-}
-
-// Dùng copyWith — không modify trực tiếp
-final updatedUser = currentUser.copyWith(name: 'New Name');
-// currentUser không đổi → ChangeNotifier/Provider detect sự khác biệt
-setState(() => _user = updatedUser);
-```
-
----
-
-#### Q3 [Middle] — "Tại sao `(json['price'] as num).toDouble()` thay vì `json['price'] as double`?"
-
-**Trả lời chuẩn:**
-
-**Vấn đề:** JSON specification không có int/double distinction cho numbers. Dart's JSON decoder (`dart:convert`) maps:
-- `99` (no decimal) → `int`
-- `99.0` (with decimal) → `double`
-
-```dart
-import 'dart:convert';
-
-final json = jsonDecode('{"price": 99}');
-print(json['price'].runtimeType); // int
-
-final json2 = jsonDecode('{"price": 99.0}');
-print(json2['price'].runtimeType); // double
-
-// ❌ Crash khi server gửi 99 (integer)
-double price = json['price'] as double; // TypeError: int is not double
-
-// ✅ An toàn — num accept cả int và double
-double price = (json['price'] as num).toDouble(); // OK
-
-// ✅ Alternative
-double price = (json['price'] as num?)?.toDouble() ?? 0.0; // null safe
-```
-
-**Server behavior không nhất quán:** Backend có thể gửi `99` hoặc `99.0` tùy implementation. Ruby on Rails thường gửi `99` cho integer. Python `json.dumps(99.0)` gửi `99.0`. Dart side phải handle cả hai.
-
----
-
-#### Q4 [Senior] — "`json_serializable` generate code ra file `.g.dart`: tại sao cần `build_runner`? Cơ chế code generation?"
-
-**Trả lời chuẩn:**
-
-**`build_runner`** là build system của Dart cho **source code generation**. Nó scan files, tìm annotations (`@JsonSerializable`, `@freezed`), và gọi các `Builder` tương ứng để generate code:
-
-```
-dart run build_runner build
-  ↓
-build_runner scan tất cả .dart files trong project
-  ↓
-Tìm class có @JsonSerializable annotation
-  ↓
-json_serializable_generator.Builder được gọi
-  ↓ analyze class (fields, types, annotations)
-  ↓ generate _$UserFromJson() và _$UserToJson()
-  ↓
-Ghi output vào user.g.dart
-```
-
-**Tại sao không dùng reflection (dart:mirrors)?**
-
-Dart reflection (mirrors) không work trong ahead-of-time (AOT) compilation — Flutter app được compile AOT. Code generation tạo normal Dart code tại **build time** → không cần reflection at runtime → performance tốt hơn.
-
-```dart
-// Generated file: user.g.dart
-User _$UserFromJson(Map<String, dynamic> json) => User(
-  id: json['id'] as String,
-  name: json['name'] as String,
-  createdAt: DateTime.parse(json['createdAt'] as String),
-);
-
-Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
-  'id': instance.id,
-  'name': instance.name,
-  'createdAt': instance.createdAt.toIso8601String(),
-};
-```
-
-**Watch mode cho dev:** `dart run build_runner watch` — tự động regenerate khi file thay đổi.
-
----
-
-#### Q5 [Middle] — "`freezed` vs `json_serializable` — khi nào chọn freezed?"
-
-**Trả lời chuẩn:**
-
-| Feature | `json_serializable` | `freezed` |
-|---|---|---|
-| **JSON serialize** | Có | Có (tích hợp) |
-| **copyWith** | Phải tự viết | Generated |
-| **Equality (`==`)** | Phải tự viết | Generated (deep equality) |
-| **Union types** | Không | Có (sealed-like) |
-| **Immutability** | Phải tự enforce | Generated (unmodifiable) |
-| **Pattern matching** | Không | Có (`when`, `map`) |
-
-```dart
-// json_serializable — chỉ serialization
-@JsonSerializable()
-class ApiError {
-  final String message;
-  final int code;
-  // Phải tự viết copyWith, ==, hashCode
-}
-
-// freezed — full-featured model
 @freezed
-class ApiResult<T> with _$ApiResult<T> {
-  const factory ApiResult.success(T data) = Success;
-  const factory ApiResult.failure(String message, int code) = Failure;
-  const factory ApiResult.loading() = Loading;
-}
+class Order with _$Order {
+  const factory Order({
+    required String id,
+    @JsonKey(name: 'order_number') required String orderNumber,
+    required double totalAmount,
+    @Default([]) List<String> itemIds,
+  }) = _Order;
 
-// Pattern matching như sealed class
-result.when(
-  success: (data) => showData(data),
-  failure: (msg, code) => showError(msg),
-  loading: () => showSpinner(),
-)
+  factory Order.fromJson(Map<String, dynamic> json) => _$OrderFromJson(json);
+}
 ```
 
-**Chọn freezed khi:** Model phức tạp, cần union types (Result/Either pattern), cần generated equality và copyWith.
+#### 3. Mô hình hóa kết quả mạng dạng Sealed Union:
+```dart
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'network_result.freezed.dart';
+
+@freezed
+sealed class NetworkResult<T> with _$NetworkResult<T> {
+  const factory NetworkResult.success(T data) = Success<T>;
+  const factory NetworkResult.failure(String message, int? statusCode) = Failure<T>;
+  const factory NetworkResult.loading() = Loading<T>;
+}
+
+// Sử dụng với Dart Pattern Matching:
+void handleResult(NetworkResult<Order> result) {
+  switch (result) {
+    case Success(:final data):
+      print('Thành công: ${data.orderNumber}');
+    case Failure(:final message, :final statusCode):
+      print('Thất bại: $message (Mã: $statusCode)');
+    case Loading():
+      print('Đang xử lý...');
+  }
+}
+```
 
 ---
 
-#### Q6 [Middle] — "Nested object serialization: `fromJson` factory cho nested object phải làm gì?"
+## Phần 4 — Lỗi Thường Gặp & Biện Pháp Khắc Phục (Pitfalls & Solutions)
 
-**Trả lời chuẩn:**
+### 4.1 — Ép kiểu số học trực tiếp `json['field'] as double`
 
+#### Mô tả vấn đề:
+Khai báo trường kiểu `double` và ép kiểu trực tiếp từ `json`:
 ```dart
-// API response: {"user": {"id": "1", "address": {"city": "Hanoi", "zip": "10000"}}}
+// Lỗi tiềm ẩn: Gây crash nếu server trả về số nguyên
+double price = json['price'] as double;
+```
 
-class Address {
-  final String city;
-  final String zip;
-  
-  factory Address.fromJson(Map<String, dynamic> json) => Address(
-    city: json['city'] as String,
-    zip: json['zip'] as String,
-  );
-}
+#### Nguyên nhân kỹ thuật:
+Nếu backend trả về `100` thay vì `100.0`, Dart's JSON decoder giải mã giá trị thành kiểu `int`. Khi gọi `as double`, Dart kiểm tra kiểu tại runtime và ném ra ngoại lệ:
+`TypeError: type 'int' is not a subtype of type 'double' in type cast`.
 
+#### Biện pháp khắc phục:
+Ép kiểu thông qua lớp trừu tượng `num` (là lớp cha của cả `int` và `double`), sau đó gọi `.toDouble()`:
+```dart
+double price = (json['price'] as num).toDouble();
+```
+
+---
+
+### 4.2 — Bỏ qua kiểm tra null khi xử lý cấu trúc lồng nhau
+
+#### Mô tả vấn đề:
+Truy xuất trực tiếp các object con hoặc danh sách con mà không kiểm tra giá trị `null`:
+```dart
+// Gây crash: TypeError: null is not a subtype of type Map<String, dynamic>
+Address address = Address.fromJson(json['address'] as Map<String, dynamic>);
+```
+
+#### Nguyên nhân kỹ thuật:
+Khi người dùng chưa cập nhật địa chỉ hoặc API trả về `address: null`, việc ép kiểu trực tiếp `null` sang `Map<String, dynamic>` sẽ gây lỗi runtime ngay tại thời điểm parse.
+
+#### Biện pháp khắc phục:
+Kiểm tra điều kiện `null` an toàn:
+```dart
+Address? address = json['address'] != null 
+    ? Address.fromJson(json['address'] as Map<String, dynamic>) 
+    : null;
+```
+
+---
+
+### 4.3 — Sử dụng Mutable Model trong State Management
+
+#### Mô tả vấn đề:
+Khai báo các thuộc tính trong Model không có từ khóa `final` và thay đổi trực tiếp thuộc tính:
+```dart
+// Không khuyến nghị: Model có thể bị biến đổi
 class User {
-  final String id;
-  final Address address; // nested object
-  
-  factory User.fromJson(Map<String, dynamic> json) => User(
-    id: json['id'] as String,
-    address: Address.fromJson(json['address'] as Map<String, dynamic>), // recursive
-  );
+  String name;
+  User(this.name);
 }
 
-// List of nested objects
-class Order {
-  final List<Item> items;
-  
-  factory Order.fromJson(Map<String, dynamic> json) => Order(
-    items: (json['items'] as List<dynamic>)
-        .map((item) => Item.fromJson(item as Map<String, dynamic>))
-        .toList(),
-  );
-}
+user.name = 'New Name'; // Biến đổi tại chỗ
+```
 
-// Nullable nested object
-class Profile {
-  final Address? address; // optional
-  
-  factory Profile.fromJson(Map<String, dynamic> json) => Profile(
-    address: json['address'] != null
-        ? Address.fromJson(json['address'] as Map<String, dynamic>)
-        : null,
-  );
-}
+#### Nguyên nhân kỹ thuật:
+Các công cụ quản lý trạng thái (như `ChangeNotifier`, `Bloc`, `Riverpod`) dựa vào việc so sánh tham chiếu đối tượng cũ và mới (`oldState != newState`). Nếu thay đổi giá trị trực tiếp trên cùng một instance tham chiếu, framework sẽ coi như state không thay đổi và bỏ qua việc kích hoạt vẽ lại giao diện (UI rebuild).
+
+#### Biện pháp khắc phục:
+Luôn khai báo các trường là `final`, sử dụng `const` constructor và tạo bản sao mới thông qua phương thức `copyWith`.
+
+---
+
+### 4.4 — Sử dụng `DateTime.parse()` mà không kiểm soát ngoại lệ
+
+#### Mô tả vấn đề:
+Gọi trực tiếp `DateTime.parse(json['date'] as String)`.
+
+#### Nguyên nhân kỹ thuật:
+Nếu chuỗi ngày tháng trả về không đúng chuẩn ISO 8601 (ví dụ chuỗi rỗng `""` hoặc định dạng sai), `DateTime.parse()` sẽ ném ra ngoại lệ `FormatException` làm gián đoạn toàn bộ quá trình parse dữ liệu của màn hình.
+
+#### Biện pháp khắc phục:
+Sử dụng `DateTime.tryParse()` và cung cấp giá trị mặc định nếu cần thiết:
+```dart
+DateTime createdAt = DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now();
 ```
 
 ---
 
-#### Q7 [Trace Code] — "Server trả `{"price": 99}` vs `{"price": 99.0}`: parse code nào safe, code nào crash?"
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Phân Tích Mã Nguồn (Deep-Dive & Code Tracing)
+
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
+
+#### Câu hỏi 1: Tại sao cần sử dụng `(json['value'] as num).toDouble()` thay vì `as double`?
+*Phân tích:*
+Trong ngôn ngữ Dart, cả `int` và `double` đều kế thừa từ lớp trừu tượng `num`. Tuy nhiên, `int` không phải là lớp con của `double`. Chuẩn JSON không có sự phân định kiểu nguyên thủy `int` hay `double` mà chỉ có một kiểu số học chung. Khi bộ giải mã `dart:convert` đọc một số không có phần thập phân (ví dụ `100`), nó tự động tạo ra một thể hiện của `int`. Do đó, ép kiểu trực tiếp `as double` sẽ thất bại. Việc ép kiểu sang `num` tương thích với cả hai kiểu số, và phương thức `.toDouble()` sẽ chuyển đổi giá trị nguyên sang số thực một cách an toàn.
+
+---
+
+#### Câu hỏi 2: Tại sao Flutter không sử dụng Reflection (`dart:mirrors`) để parse JSON tại Runtime?
+*Phân tích:*
+Flutter sử dụng cơ chế biên dịch AOT (Ahead-Of-Time) để chuyển đổi mã nguồn Dart trực tiếp sang mã máy nhị phân (ARM / x86). Để tối ưu hóa hiệu năng khởi động và giảm kích thước tệp cài đặt (APK / IPA), trình biên dịch thực hiện kỹ thuật **Tree-shaking** — loại bỏ toàn bộ các hàm, lớp và trường không được gọi trực tiếp. Cơ chế Reflection đòi hỏi phải lưu trữ toàn bộ bảng ánh xạ kiểu (Type Metadata) tại Runtime, làm vô hiệu hóa khả năng Tree-shaking và tiêu tốn nhiều bộ nhớ RAM khi thiết bị khởi chạy.
+
+---
+
+#### Câu hỏi 3: Lợi thế kiến trúc của Model bất biến (Immutable Data Classes) trong ứng dụng Flutter là gì?
+*Phân tích:*
+1. **Phát hiện thay đổi hiệu quả (Change Detection)**: Khi cần kiểm tra xem dữ liệu có thay đổi hay không, hệ thống chỉ cần so sánh tham chiếu (`identical(oldModel, newModel)`), đạt độ phức tạp $O(1)$ thay vì phải duyệt sâu qua từng trường dữ liệu.
+2. **An toàn đa luồng (Thread-safety)**: Trong ứng dụng xử lý tác vụ nền bằng các `Isolate`, các đối tượng bất biến có thể được truyền hoặc đọc một cách an toàn mà không phát sinh hiện tượng tranh chấp bộ nhớ (Race Condition).
+3. **Dự đoán trạng thái (Predictable State)**: Ngăn chặn việc một thành phần giao diện vô tình thay đổi giá trị thuộc tính của model ở nơi khác.
+
+---
+
+#### Câu hỏi 4: Cơ chế hoạt động của `JsonConverter<T, S>` trong thư viện `json_serializable`?
+*Phân tích:*
+`JsonConverter<T, S>` là một lớp trừu tượng định nghĩa hai phương thức: `T fromJson(S json)` và `S toJson(T object)`, trong đó `T` là kiểu dữ liệu mong muốn trong Dart Model và `S` là kiểu dữ liệu tương thích với JSON (thường là `String`, `int`, `Map`). Trong quá trình sinh mã tĩnh, `build_runner` phát hiện annotation `@JsonConverter` trên một trường dữ liệu và tự động chèn lời gọi hàm `converter.fromJson()` vào mã nguồn được sinh ra tại file `.g.dart`.
+
+---
+
+#### Câu hỏi 5: Sự khác biệt giữa Deep Equality trong `freezed` và Reference Equality mặc định của Dart?
+*Phân tích:*
+Mặc định trong Dart, toán tử `==` trên các lớp thông thường là **Reference Equality** (so sánh định danh địa chỉ ô nhớ thông qua `identical(a, b)`). Hai đối tượng có cùng các trường dữ liệu nhưng được khởi tạo độc lập sẽ trả về `false`. Thư viện `freezed` ghi đè (override) toán tử `operator ==` và phương thức `hashCode` bằng thuật toán so sánh sâu (**Deep Equality**): Duyệt qua từng trường dữ liệu của đối tượng và so sánh giá trị cụ thể của từng trường (kể cả danh sách các phần tử bên trong), đảm bảo hai instance mang cùng dữ liệu sẽ được coi là tương đương nhau.
+
+---
+
+### 5.2 — Bài Tập Phân Tích Luồng Thực Thi (Code Tracing)
+
+#### Đề bài:
+Cho ba cấu hình parse trường `price` như sau:
 
 ```dart
-// Model
-class Product {
+class ModelA {
   final double price;
-  const Product({required this.price});
-  
-  factory Product.fromJson(Map<String, dynamic> json) => Product(
-    price: json['price'] as double, // ← CASE A
-    // price: (json['price'] as num).toDouble(), // ← CASE B
-    // price: double.tryParse(json['price'].toString()) ?? 0.0, // ← CASE C
-  );
+  ModelA.fromJson(Map<String, dynamic> json) : price = json['price'] as double;
 }
 
-// Test 1: Server gửi integer
-final json1 = {'price': 99}; // int
-final p1 = Product.fromJson(json1);
+class ModelB {
+  final double price;
+  ModelB.fromJson(Map<String, dynamic> json) : price = (json['price'] as num).toDouble();
+}
 
-// Test 2: Server gửi double
-final json2 = {'price': 99.0}; // double
-final p2 = Product.fromJson(json2);
-
-// Test 3: Server gửi string (typo hoặc legacy API)
-final json3 = {'price': '99.5'}; // String!
-final p3 = Product.fromJson(json3);
+class ModelC {
+  final double price;
+  ModelC.fromJson(Map<String, dynamic> json) : price = double.tryParse(json['price'].toString()) ?? 0.0;
+}
 ```
 
-**CASE A — `json['price'] as double`:**
-- Test 1 (`99` int): **CRASH** — `TypeError: int is not double`
-- Test 2 (`99.0` double): ✅ OK
-- Test 3 (`'99.5'` string): **CRASH** — `TypeError: String is not double`
+Hãy phân tích kết quả khi truyền vào 3 trường hợp dữ liệu JSON:
+- Payload 1: `{'price': 100}` (Số nguyên)
+- Payload 2: `{'price': 100.5}` (Số thực)
+- Payload 3: `{'price': "100.5"}` (Chuỗi ký tự do API cũ gửi)
 
-**CASE B — `(json['price'] as num).toDouble()`:**
-- Test 1 (`99` int): ✅ OK — `int` extends `num` → `99.toDouble()` = 99.0
-- Test 2 (`99.0` double): ✅ OK
-- Test 3 (`'99.5'` string): **CRASH** — `String` không extends `num`
+#### Kết quả phân tích kỹ thuật:
 
-**CASE C — `double.tryParse(json['price'].toString())`:**
-- Test 1 (`99` int): ✅ OK — `99.toString()` = `"99"` → `double.tryParse("99")` = 99.0
-- Test 2 (`99.0` double): ✅ OK
-- Test 3 (`'99.5'` string): ✅ OK — `'99.5'.toString()` = `"99.5"` → 99.5
+| Payload | ModelA (`as double`) | ModelB (`(as num).toDouble()`) | ModelC (`tryParse(toString())`) |
+| :--- | :--- | :--- | :--- |
+| **Payload 1: `{'price': 100}`** | ❌ **Crash** (`TypeError: int is not double`) | ✅ **Thành công** (`price = 100.0`) | ✅ **Thành công** (`price = 100.0`) |
+| **Payload 2: `{'price': 100.5}`** | ✅ **Thành công** (`price = 100.5`) | ✅ **Thành công** (`price = 100.5`) | ✅ **Thành công** (`price = 100.5`) |
+| **Payload 3: `{'price': "100.5"}`** | ❌ **Crash** (`TypeError: String is not double`) | ❌ **Crash** (`TypeError: String is not num`) | ✅ **Thành công** (`price = 100.5`) |
 
-**Kết luận:** CASE B là standard pattern (tốt hơn CASE A). CASE C flexible nhất nhưng có overhead của String conversion. Trong production, CASE B là đủ nếu server không bao giờ gửi string prices.
+**Nhận định kỹ thuật**:
+- `ModelA`: Kém linh hoạt nhất, dễ gây lỗi crash tại runtime khi máy chủ trả về số nguyên chẵn.
+- `ModelB`: Giải pháp tối ưu theo chuẩn của Dart/Flutter đối với các API tuân thủ đúng chuẩn REST JSON.
+- `ModelC`: Có khả năng chịu lỗi cao nhất khi tích hợp với các hệ thống backend không chuẩn hóa kiểu dữ liệu, tuy nhiên phát sinh chi phí chuyển đổi chuỗi (`toString()`).

@@ -1,181 +1,250 @@
-# Bài 9.3 — Form, FormState & Validation
+# Bài 9.3 — Kiến Trúc Biểu Mẫu: Form, FormState & Cơ Chế Xác Thực Dữ Liệu
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
-
-### Tại sao bài này quan trọng?
-
-`Form` + `TextFormField` là Flutter's built-in form validation system. Nó giải quyết vấn đề phức tạp:
-- Validate nhiều fields một lúc
-- Manage error messages theo field
-- Save/reset form state
-
-```dart
-// Một lệnh validate toàn bộ form
-if (_formKey.currentState!.validate()) {
-  _formKey.currentState!.save();
-  // Submit!
-}
-```
-
-### Bạn sẽ hiểu được sau bài này:
-- `Form`, `GlobalKey<FormState>`, `TextFormField`
-- `validator`: inline validation logic
-- `autovalidateMode`: khi nào trigger validation
-- `form.save()`, `form.validate()`, `form.reset()`
+## Tài Liệu Tham Khảo Chính Thức
+- [Flutter Documentation: Build a form with validation](https://docs.flutter.dev/cookbook/forms/validation)
+- [Flutter API: Form class](https://api.flutter.dev/flutter/widgets/Form-class.html)
+- [Flutter API: FormState class](https://api.flutter.dev/flutter/widgets/FormState-class.html)
+- [Flutter API: FormField class](https://api.flutter.dev/flutter/widgets/FormField-class.html)
+- [Flutter API: TextFormField class](https://api.flutter.dev/flutter/material/TextFormField-class.html)
+- [Flutter API: AutovalidateMode enum](https://api.flutter.dev/flutter/widgets/AutovalidateMode.html)
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 1 — Khái Niệm & Vai Trò Của Form Trong Flutter
 
-### Form Validation Flow
+### 1.1 — Kiến Trúc Biểu Mẫu (Form Architecture)
 
-```mermaid
-flowchart TD
-    User([User submit]) --> Validate["form.validate()"]
-    Validate --> WalkTree["Walk FormField tree"]
-    WalkTree --> Validator1["Field 1: validator(value)"]
-    WalkTree --> Validator2["Field 2: validator(value)"]
-    WalkTree --> ValidatorN["Field N: validator(value)"]
-    Validator1 -->|null| Valid1[Valid ✓]
-    Validator1 -->|string| Invalid1[Show error]
-    Validator2 -->|null| Valid2[Valid ✓]
-    Validator2 -->|string| Invalid2[Show error]
-    Valid1 --> AllValid{All valid?}
-    Valid2 --> AllValid
-    Invalid1 --> AllValid
-    Invalid2 --> AllValid
-    AllValid -->|Yes| Save["form.save() → onSaved callbacks"]
-    AllValid -->|No| Return[Return false]
+Khi một màn hình chứa nhiều trường nhập liệu có mối liên kết logic (ví dụ biểu mẫu đăng ký gồm: Họ tên, Email, Mật khẩu, Xác nhận mật khẩu), việc quản lý thủ công từng `TextEditingController` độc lập sẽ làm mã nguồn trở nên cồng kềnh.
+
+Flutter cung cấp bộ ba thành phần để giải quyết bài toán quản trị biểu mẫu:
+
 ```
+┌────────────────────────────────────────────────────────────────────────┐
+│ MÔ HÌNH KIẾN TRÚC FORM TRONG FLUTTER                                   │
+│                                                                        │
+│ ┌────────────────────────────────────────────────────────────────────┐ │
+│ │ GlobalKey<FormState>                                               │ │
+│ │  • Cung cấp điểm truy cập điều khiển: validate(), save(), reset()  │ │
+│ └──────────────────────────────────┬─────────────────────────────────┘ │
+│                                    │ Liên kết và điều phối             │
+│                                    ▼                                   │
+│ ┌────────────────────────────────────────────────────────────────────┐ │
+│ │ Form (Container Widget)                                            │ │
+│ │  • Cung cấp _FormScope (InheritedWidget) cho các con               │ │
+│ └──────────────┬──────────────────────────────────────┬──────────────┘ │
+│                │ Quản lý tập hợp các trường           │                │
+│                ▼                                      ▼                │
+│ ┌─────────────────────────────┐      ┌─────────────────────────────┐   │
+│ │ TextFormField (Email)       │      │ TextFormField (Password)    │   │
+│ │  • validator()              │      │  • validator()              │   │
+│ │  • onSaved()                │      │  • onSaved()                │   │
+│ └─────────────────────────────┘      └─────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **`Form`**: Widget đóng vai trò là thùng chứa (Container), cung cấp ngữ cảnh chung cho toàn bộ các trường nhập liệu bên trong.
+2. **`FormField<T>` / `TextFormField`**: Widget đại diện cho một trường nhập liệu đơn lẻ có khả năng duy trì trạng thái (`FormFieldState<T>`), thực thi logic kiểm tra tính hợp lệ (`validator`) và lưu trữ dữ liệu (`onSaved`).
+3. **`FormState`**: Lớp quản lý trạng thái nội bộ của `Form`, được truy xuất thông qua `GlobalKey<FormState>`.
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 1.2 — Các Chế Độ Tự Động Xác Thực (`AutovalidateMode`)
 
-### 3.1 — Register Form hoàn chỉnh
+Thuộc tính `autovalidateMode` quyết định thời điểm logic kiểm tra lỗi được kích hoạt:
+
+| Giá Trị | Cơ Chế Hoạt Động | Đánh Giá UX |
+| :--- | :--- | :--- |
+| **`disabled` (Mặc định)** | Không bao giờ tự động validate. Chỉ kiểm tra khi gọi `formKey.currentState!.validate()` tường minh. | Phù hợp khi chỉ muốn báo lỗi sau khi người dùng đã nhấn nút "Gửi" (Submit). |
+| **`always`** | Tự động chạy validator ở mỗi frame ngay từ khi màn hình vừa khởi tạo. | **Không khuyến nghị**: Giao diện hiển thị lỗi đỏ ngay khi người dùng chưa kịp tương tác, gây ức chế tâm lý. |
+| **`onUserInteraction`** | Chỉ bắt đầu tự động validate sau khi người dùng đã chạm hoặc gõ ký tự đầu tiên vào trường đó. | Phản hồi thời gian thực mượt mà: Sau khi người dùng gõ sai, thông báo lỗi tự động biến mất ngay khi họ sửa đúng. |
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động Cốt Lõi (Under the Hood)
+
+### 2.1 — Cơ Chế Đăng Ký Tự Động Giữa Form Và FormField
+
+Làm thế nào mà `Form` biết được có bao nhiêu trường con bên trong nó, ngay cả khi các trường đó nằm sâu bên trong các cấu trúc layout phức tạp (`Column`, `Padding`, `Card`)?
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ CƠ CHẾ TỰ ĐĂNG KÝ VÀ QUẢN LÝ DANH SÁCH FIELD                          │
+│                                                                        │
+│ 1. Form widget tạo ra một _FormScope (kế thừa InheritedWidget)         │
+│      │                                                                 │
+│      ▼                                                                 │
+│ 2. FormFieldState.initState() được gọi:                                │
+│    • Tìm kiếm FormState gần nhất qua: Form._maybeOf(context)           │
+│    • Nếu tìm thấy FormState:                                           │
+│      -> Gọi FormState._register(this)                                  │
+│      -> Lưu trữ tham chiếu vào Set<FormFieldState<dynamic>> _fields    │
+│      │                                                                 │
+│      ▼                                                                 │
+│ 3. FormFieldState.dispose() được gọi:                                  │
+│    • Tự động gọi FormState._unregister(this) để giải phóng tham chiếu │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Nhờ mô hình này:
+- Lập trình viên không cần truyền danh sách controller vào `Form`.
+- Cấu trúc cây widget hoàn toàn linh hoạt: Có thể thêm hoặc bớt các trường nhập liệu một cách động (Dynamic Forms).
+
+---
+
+### 2.2 — Chu Trình Thực Thi Của Phương Thức `validate()`
+
+Khi gọi `formKey.currentState!.validate()`, một quy trình tuần tự được kích hoạt:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ QUY TRÌNH THỰC THI CỦA FORMSTATE.VALIDATE()                            │
+│                                                                        │
+│ bool hasError = false;                                                 │
+│ Duyệt qua từng field trong Set<FormFieldState> _fields:                │
+│    │                                                                   │
+│    ├──► Gọi hàm validator(field.value)                                 │
+│    │      │                                                            │
+│    │      ├── Trả về String (Có lỗi):                                  │
+│    │      │     • field.setState(() => errorText = errorMessage)       │
+│    │      │     • hasError = true;                                     │
+│    │      │                                                            │
+│    │      └── Trả về null (Hợp lệ):                                    │
+│    │            • field.setState(() => errorText = null)               │
+│    │                                                                   │
+│ Kết quả cuối cùng: return !hasError;                                   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- Nếu hàm trả về `true`: Tất cả các trường đều đạt tiêu chuẩn, an toàn để tiếp tục bước gửi dữ liệu.
+- Nếu hàm trả về `false`: Các trường vi phạm sẽ tự động hiển thị dòng chữ thông báo lỗi màu đỏ ngay dưới ô nhập, và chu trình submit bị chặn lại.
+
+---
+
+## Phần 3 — Triển Khai Thực Tế
+
+### 3.1 — Biểu Mẫu Đăng Ký Tài Khoản Hoàn Chỉnh
+
+Biểu mẫu áp dụng kiểm tra định dạng email bằng biểu thức chính quy (Regex), kiểm tra độ dài mật khẩu và xác nhận tính trùng khớp:
 
 ```dart
-class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
-  @override State<RegisterScreen> createState() => _RegisterScreenState();
+import 'package:flutter/material.dart';
+
+// DTO lưu trữ kết quả đầu ra
+class RegistrationData {
+  String email = '';
+  String password = '';
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
-  // GlobalKey: truy cập FormState từ bên ngoài Form widget
+class RegisterFormScreen extends StatefulWidget {
+  const RegisterFormScreen({super.key});
+
+  @override
+  State<RegisterFormScreen> createState() => _RegisterFormScreenState();
+}
+
+class _RegisterFormScreenState extends State<RegisterFormScreen> {
+  // 1. Khởi tạo GlobalKey duy nhất để quản lý FormState
   final _formKey = GlobalKey<FormState>();
+  final _formData = RegistrationData();
+  final _passwordController = TextEditingController();
 
-  // Lưu giá trị form sau khi validate
-  String? _savedEmail;
-  String? _savedPassword;
-  String? _savedName;
-  bool _obscurePassword = true;
-  bool _isLoading = false;
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _submitForm() {
+    // 2. Kích hoạt kiểm tra tính hợp lệ toàn bộ biểu mẫu
+    if (_formKey.currentState?.validate() ?? false) {
+      // 3. Kích hoạt onSaved() trên từng field để ghi dữ liệu vào DTO
+      _formKey.currentState!.save();
+
+      // Đóng bàn phím
+      FocusManager.instance.primaryFocus?.unfocus();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Đăng ký thành công: ${_formData.email}')),
+      );
+    }
+  }
+
+  void _resetForm() {
+    // 4. Xóa toàn bộ dữ liệu đã nhập và đưa các thông báo lỗi về trạng thái ban đầu
+    _formKey.currentState?.reset();
+    _passwordController.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Đăng ký')),
+      appBar: AppBar(title: const Text('Đăng Ký Tài Khoản')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
-          // onChanged: gọi mỗi khi bất kỳ field nào thay đổi
-          // Useful để enable/disable submit button
-          autovalidateMode: AutovalidateMode.disabled, // Chỉ validate khi submit
+          // Tự động kiểm tra lỗi khi người dùng bắt đầu nhập
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             children: [
+              // Trường Email
               TextFormField(
-                decoration: const InputDecoration(
-                  labelText: 'Họ tên',
-                  prefixIcon: Icon(Icons.person_outline),
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.words,
-                textInputAction: TextInputAction.next,
-                // validator: trả về null nếu hợp lệ, chuỗi lỗi nếu không
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Vui lòng nhập họ tên';
-                  }
-                  if (value.trim().length < 2) {
-                    return 'Họ tên phải có ít nhất 2 ký tự';
-                  }
-                  return null; // Valid
-                },
-                // onSaved: gọi sau form.save()
-                onSaved: (value) => _savedName = value?.trim(),
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
+                keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   prefixIcon: Icon(Icons.email_outlined),
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
-                autocorrect: false,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Vui lòng nhập email';
-                  }
-                  // RFC-compliant email regex
-                  final emailRegex = RegExp(
-                    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                  );
-                  if (!emailRegex.hasMatch(value)) {
-                    return 'Email không hợp lệ';
-                  }
-                  return null;
-                },
-                onSaved: (value) => _savedEmail = value?.toLowerCase().trim(),
+                validator: FormValidators.validateEmail,
+                onSaved: (value) => _formData.email = value?.trim() ?? '',
               ),
               const SizedBox(height: 16),
 
+              // Trường Mật Khẩu
               TextFormField(
-                decoration: InputDecoration(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
                   labelText: 'Mật khẩu',
-                  prefixIcon: const Icon(Icons.lock_outlined),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(_obscurePassword
-                        ? Icons.visibility_off
-                        : Icons.visibility),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                  ),
+                  prefixIcon: Icon(Icons.lock_outline),
+                  border: OutlineInputBorder(),
                 ),
-                obscureText: _obscurePassword,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _submit(),
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Vui lòng nhập mật khẩu';
-                  if (value.length < 8) return 'Mật khẩu phải có ít nhất 8 ký tự';
-                  if (!value.contains(RegExp(r'[A-Z]'))) {
-                    return 'Phải có ít nhất 1 chữ HOA';
-                  }
-                  if (!value.contains(RegExp(r'[0-9]'))) {
-                    return 'Phải có ít nhất 1 chữ số';
-                  }
-                  return null;
-                },
-                onSaved: (value) => _savedPassword = value,
+                validator: FormValidators.validatePassword,
+                onSaved: (value) => _formData.password = value ?? '',
+              ),
+              const SizedBox(height: 16),
+
+              // Trường Xác Nhận Mật Khẩu
+              TextFormField(
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Xác nhận mật khẩu',
+                  prefixIcon: Icon(Icons.lock_reset),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => FormValidators.validateConfirmPassword(
+                  value,
+                  _passwordController.text,
+                ),
               ),
               const SizedBox(height: 24),
 
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _submit,
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Đăng ký'),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _resetForm,
+                      child: const Text('Nhập Lại'),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _submitForm,
+                      child: const Text('Đăng Ký'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -183,442 +252,232 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
-
-  Future<void> _submit() async {
-    // 1. Validate tất cả fields
-    if (!_formKey.currentState!.validate()) return;
-
-    // 2. Save — gọi tất cả onSaved callbacks
-    _formKey.currentState!.save();
-
-    setState(() => _isLoading = true);
-
-    try {
-      // 3. Submit với saved values
-      await AuthRepository().register(
-        name: _savedName!,
-        email: _savedEmail!,
-        password: _savedPassword!,
-      );
-
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home');
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
 }
-```
-
-### 3.2 — AutovalidateMode
-
-```dart
-// AutovalidateMode: điều khiển khi nào trigger validator
-
-// 1. disabled (default): chỉ validate khi gọi form.validate() thủ công
-Form(autovalidateMode: AutovalidateMode.disabled, ...)
-
-// 2. onUserInteraction: validate sau khi user interact với field
-// → UX tốt nhất: không annoying khi form mới load
-Form(autovalidateMode: AutovalidateMode.onUserInteraction, ...)
-
-// 3. always: validate liên tục mỗi lần rebuild
-// → Dùng khi cần validate ngay khi form render
-Form(autovalidateMode: AutovalidateMode.always, ...)
-```
-
-### 3.3 — Form Reset
-
-```dart
-// Sau submit thành công hoặc Cancel button
-_formKey.currentState!.reset(); // Xóa text VÀ error messages
-// Hoặc set về initial values:
-_emailController.clear();
-_passwordController.clear();
 ```
 
 ---
 
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+### 3.2 — Tách Biệt Bộ Quy Tắc Xác Thực (Decoupled Validation Rules)
 
-### ❌ Anti-pattern 1: Validate không check null
+Tách các hàm `validator` thành các hàm thuần túy (Pure Functions) không phụ thuộc vào widget, giúp dễ dàng viết Unit Test:
 
 ```dart
-// ❌ Crash: value có thể null khi field chưa được tap
-validator: (value) {
-  if (value.isEmpty) return 'Required'; // NullPointerException!
-}
+abstract class FormValidators {
+  static final _emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
 
-// ✅ Luôn check null trước
+  static String? validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Vui lòng nhập địa chỉ email.';
+    }
+    if (!_emailRegex.hasMatch(value.trim())) {
+      return 'Địa chỉ email không đúng định dạng.';
+    }
+    return null; // Hợp lệ
+  }
+
+  static String? validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Vui lòng nhập mật khẩu.';
+    }
+    if (value.length < 8) {
+      return 'Mật khẩu phải chứa ít nhất 8 ký tự.';
+    }
+    return null;
+  }
+
+  static String? validateConfirmPassword(String? value, String originalPassword) {
+    if (value == null || value.isEmpty) {
+      return 'Vui lòng xác nhận mật khẩu.';
+    }
+    if (value != originalPassword) {
+      return 'Mật khẩu xác nhận không khớp.';
+    }
+    return null;
+  }
+}
+```
+
+---
+
+## Phần 4 — Lỗi Kỹ Thuật Thường Gặp & Biện Pháp Khắc Phục (Pitfalls & Solutions)
+
+### 4.1 — Bỏ qua kiểm tra `null` trong hàm `validator`
+
+#### Mô tả vấn đề:
+Truy xuất trực tiếp các phương thức trên biến `value` mà không kiểm tra null:
+```dart
+// Lỗi runtime: Null check operator used on a null value
 validator: (value) {
-  if (value == null || value.isEmpty) return 'Bắt buộc';
+  if (value!.isEmpty) return 'Lỗi'; // Ném TypeError khi value là null!
+}
+```
+
+#### Biện pháp khắc phục:
+Luôn kiểm tra an toàn theo cú pháp null-safe:
+```dart
+validator: (value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Vui lòng điền thông tin.';
+  }
   return null;
 }
 ```
 
-### ❌ Anti-pattern 2: Quên gọi form.save() trước khi dùng saved values
+---
 
+### 4.2 — Quên gọi `form.save()` trước khi sử dụng biến kết quả
+
+#### Mô tả vấn đề:
+Lập trình viên kiểm tra `if (_formKey.currentState!.validate())` thành công, nhưng lập tức gửi object dữ liệu lên API mà không gọi `_formKey.currentState!.save()`.
+
+#### Nguyên nhân kỹ thuật:
+Phương thức `validate()` chỉ kiểm tra lỗi và trả về boolean. Callbacks `onSaved: (val) { ... }` trên từng `TextFormField` chỉ thực sự được kích hoạt khi phương thức `save()` được gọi tường minh. Nếu bỏ qua bước này, các trường trong DTO vẫn giữ giá trị rỗng ban đầu.
+
+#### Biện pháp khắc phục:
+Luôn gọi `save()` ngay sau khi `validate()` trả về `true`:
 ```dart
-// ❌ _savedEmail null vì chưa gọi save()
-_formKey.currentState!.validate();
-submitData(_savedEmail!); // _savedEmail vẫn null!
-
-// ✅ Thứ tự đúng: validate → save → use
-if (_formKey.currentState!.validate()) {
-  _formKey.currentState!.save(); // Gọi tất cả onSaved
-  submitData(_savedEmail!); // Bây giờ _savedEmail có giá trị
+if (_formKey.currentState?.validate() ?? false) {
+  _formKey.currentState!.save();
+  _sendApiRequest(_formData);
 }
 ```
 
-### ❌ Anti-pattern 3: Đặt logic phức tạp trực tiếp trong validator
+---
 
+### 4.3 — Đặt logic bất đồng bộ (Gọi API) trực tiếp vào trong `validator`
+
+#### Mô tả vấn đề:
+Cố gắng biến hàm `validator` thành hàm bất đồng bộ (`async`) để kiểm tra email đã tồn tại trên server hay chưa:
 ```dart
-// ❌ Không tốt: validator gọi API (async không hỗ trợ)
+// SAI LẦM: validator trong Flutter chỉ chấp nhận hàm đồng bộ
 validator: (value) async {
-  final exists = await api.checkEmailExists(value); // ❌ Không work!
+  final exists = await api.checkEmail(value); // Không hợp lệ về kiểu dữ liệu!
   return exists ? 'Email đã tồn tại' : null;
 }
-
-// ✅ Async validation: thực hiện trong submit handler
-Future<void> _submit() async {
-  if (!_formKey.currentState!.validate()) return;
-  _formKey.currentState!.save();
-  // Async check sau khi synchronous validation pass
-  final exists = await api.checkEmailExists(_savedEmail!);
-  if (exists) {
-    _formKey.currentState!.fields['email']?.invalidate('Email đã tồn tại');
-    return;
-  }
-  // ...
-}
 ```
+
+#### Nguyên nhân kỹ thuật:
+Chữ ký của hàm `FormFieldValidator<T>` là:
+`String? Function(T? value)` (hàm đồng bộ). Framework không hỗ trợ `Future<String?>` trong chu trình render vì giao diện cần hiển thị kết quả ngay trong khung hình hiện tại mà không thể chờ phản hồi mạng.
+
+#### Biện pháp khắc phục:
+1. `validator` chỉ chịu trách nhiệm kiểm tra định dạng cú pháp cục bộ (Format, độ dài).
+2. Khi người dùng nhấn nút Submit, gọi API kiểm tra bất đồng bộ. Nếu máy chủ báo trùng, cập nhật lỗi thông qua một biến state hoặc cơ chế State Management.
 
 ---
 
-## Phần 5 — Bài Tập Củng Cố Tư Duy
+### 4.4 — Khởi tạo `GlobalKey<FormState>` bên trong phương thức `build()`
 
-### Challenge: Multi-step Registration Form
+#### Mô tả vấn đề:
+Khai báo `final formKey = GlobalKey<FormState>();` trực tiếp trong hàm `build()`.
 
-**Yêu cầu:**
-1. Step 1: Personal info (Name, DOB, Gender)
-2. Step 2: Account info (Email, Username, Password, Confirm Password)
-3. Step 3: Review & Submit
-4. Mỗi step: validate riêng trước khi Next
-5. Back button: giữ nguyên data đã nhập
+#### Nguyên nhân kỹ thuật:
+Mỗi lần widget rebuild, một `GlobalKey` mới được cấp phát trong bộ nhớ. Toàn bộ trạng thái lỗi và dữ liệu nhập trước đó của `FormState` cũ bị hủy bỏ hoàn toàn.
 
-**Gợi ý:**
-- Mỗi step có `Form` + `GlobalKey<FormState>` riêng
-- Dùng `PageController` hoặc `IndexedStack` để switch steps
-- Giữ data giữa steps trong parent State
-- "Confirm Password" validation: so sánh với Password field
-
-### Thử Thách Tư Duy & Thẩm Định Chuyên Sâu (Conceptual & Deep-Dive Check)
-
-> **[Junior]** — nắm khái niệm | **[Middle]** — hiểu cơ chế | **[Senior]** — hiểu Flutter internals | **[Trace Code]** — đọc code và dự đoán output
+#### Biện pháp khắc phục:
+Luôn khai báo `GlobalKey` là biến thành viên của lớp `State` trong `StatefulWidget`.
 
 ---
 
-#### Q1 [Junior] — "Sự khác biệt giữa `Form + TextFormField` và `TextField` đơn thuần?"
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Phân Tích Mã Nguồn (Deep-Dive & Code Tracing)
 
-**Trả lời chuẩn:**
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
 
-| | `Form + TextFormField` | `TextField` standalone |
-|---|---|---|
-| **Validation** | Built-in (`validator` callback) | Phải tự implement |
-| **Grouping** | `Form` quản lý tất cả fields | Riêng lẻ |
-| **Save** | `formKey.currentState?.save()` | Phải đọc từng controller |
-| **Reset** | `formKey.currentState?.reset()` | Phải set từng controller |
-| **`onSaved`** | Có — `FormState.save()` gọi hết | Không |
-| **Use case** | Complex forms (login, registration) | Simple single input |
-
-```dart
-// Form + TextFormField — recommended cho multi-field forms
-final _formKey = GlobalKey<FormState>();
-String? _email, _password;
-
-Form(
-  key: _formKey,
-  autovalidateMode: AutovalidateMode.onUserInteraction,
-  child: Column(children: [
-    TextFormField(
-      decoration: const InputDecoration(labelText: 'Email'),
-      validator: (v) => v?.contains('@') == true ? null : 'Invalid email',
-      onSaved: (v) => _email = v,
-    ),
-    TextFormField(
-      obscureText: true,
-      validator: (v) => (v?.length ?? 0) >= 8 ? null : 'Min 8 chars',
-      onSaved: (v) => _password = v,
-    ),
-    ElevatedButton(
-      onPressed: () {
-        if (_formKey.currentState?.validate() == true) {
-          _formKey.currentState?.save();
-          login(_email!, _password!);
-        }
-      },
-      child: const Text('Login'),
-    ),
-  ]),
-)
-```
+#### Câu hỏi 1: Lớp `FormState` xử lý như thế nào khi một `FormField` nằm trong một Widget con bị ẩn đi do điều kiện `if`?
+*Phân tích:*
+Khi điều kiện `if` đổi sang `false`, `FormField` bị tháo gỡ khỏi cây Element. Phương thức `dispose()` của `FormFieldState` được framework tự động gọi. Tại đây, nó kích hoạt hàm `FormState._unregister(this)`, loại bỏ tham chiếu của chính nó khỏi tập hợp `_fields` của Form cha. Do đó, khi `formKey.currentState!.validate()` được gọi ở các lần tiếp theo, trường bị ẩn hoàn toàn không còn tham gia vào quá trình kiểm tra lỗi.
 
 ---
 
-#### Q2 [Junior] — "`AutovalidateMode.always` vs `onUserInteraction` vs `disabled`?"
-
-**Trả lời chuẩn:**
-
-| Mode | Validate khi | UX |
-|---|---|---|
-| `disabled` | Chỉ khi gọi `validate()` thủ công | Không show error cho đến khi submit |
-| `onUserInteraction` | Sau khi user bắt đầu interact (type, tap) | Validation ngay lập tức sau touch |
-| `always` | Mọi lúc, kể cả khi chưa touch | Error hiện ngay khi load — phiền |
-
-```dart
-// disabled (mặc định nếu không set trên Form)
-Form(autovalidateMode: AutovalidateMode.disabled)
-
-// onUserInteraction — KHUYẾN NGHỊ cho form UX
-Form(autovalidateMode: AutovalidateMode.onUserInteraction)
-
-// always — show error ngay lập tức (kể cả chưa touch)
-Form(autovalidateMode: AutovalidateMode.always)
-```
-
-**Pattern thường gặp:** `Form(autovalidateMode: disabled)` + gọi `validate()` khi submit. Kết hợp với `onUserInteraction` trên từng `TextFormField` riêng lẻ.
+#### Câu hỏi 2: Sự khác biệt bản chất giữa `FormState.reset()` và việc gán rỗng các `TextEditingController`?
+*Phân tích:*
+- Gán `controller.clear()`: Chỉ đơn thuần đưa chuỗi văn bản về rỗng `""`. Các dòng chữ thông báo lỗi màu đỏ (nếu đang hiển thị) vẫn giữ nguyên trên màn hình.
+- Gọi `formKey.currentState!.reset()`: Đưa toàn bộ các `FormField` con về lại trạng thái khởi tạo ban đầu (`initialValue`), đồng thời **xóa sạch toàn bộ các thông báo lỗi (`errorText = null`)** và gán lại cờ trạng thái hợp lệ.
 
 ---
 
-#### Q3 [Middle] — "`formKey.currentState?.save()` làm gì? Thứ tự gọi `validate()` và `save()`?"
-
-**Trả lời chuẩn:**
-
-`FormState.save()` **iterate toàn bộ registered `FormField`** trong Form và gọi `onSaved` callback trên mỗi field:
-
-```dart
-// FormState.save() — Flutter source (simplified)
-void save() {
-  for (final FormFieldState<dynamic> field in _fields) {
-    field.save(); // gọi onSaved(field.value)
-  }
-}
-```
-
-**Thứ tự bắt buộc: `validate()` TRƯỚC `save()`:**
-
-```dart
-// ✅ Đúng thứ tự
-void _submit() {
-  if (_formKey.currentState!.validate()) {
-    // validate() = true → tất cả fields hợp lệ
-    _formKey.currentState!.save();
-    // save() collect tất cả values vào variables
-    doLogin(_email!, _password!);
-  }
-}
-
-// ❌ Sai — save trước validate → có thể save invalid data
-void _badSubmit() {
-  _formKey.currentState!.save();
-  if (_formKey.currentState!.validate()) {
-    doLogin(_email!, _password!); // có thể _email là invalid!
-  }
-}
-```
+#### Câu hỏi 3: Tại sao phương thức `validate()` duyệt qua toàn bộ các trường thay vì dừng lại ngay khi gặp lỗi đầu tiên (Short-circuit)?
+*Phân tích:*
+Mục tiêu cốt lõi của giao diện người dùng (UI) là cung cấp bức tranh phản hồi toàn diện. Nếu áp dụng cơ chế dừng sớm (Short-circuit evaluation), người dùng sẽ chỉ nhìn thấy lỗi ở ô đầu tiên. Sau khi sửa xong và bấm Submit lần hai, họ lại thấy lỗi ở ô thứ hai, gây ức chế và làm gián đoạn trải nghiệm nhập liệu. Việc duyệt qua toàn bộ danh sách cho phép hiển thị đồng loạt tất cả các trường chưa đạt yêu cầu trong một lần kiểm tra duy nhất.
 
 ---
 
-#### Q4 [Senior] — "`Form` và `FormField` communicate thế nào? Registration mechanism?"
-
-**Trả lời chuẩn:**
-
-`Form` widget là `InheritedWidget` ancestor — `FormField` register với `Form` thông qua `FormState`:
-
-```dart
-// FormField.initState() — tự động register
-@override
-void initState() {
-  super.initState();
-  _register();
-}
-
-void _register() {
-  final formState = Form.maybeOf(context) as _FormState?;
-  formState?._register(this); // thêm vào _fields Set
-}
-
-// FormState — giữ danh sách tất cả fields
-class _FormState extends State<Form> {
-  final Set<FormFieldState<dynamic>> _fields = {};
-  
-  bool validate() {
-    bool isValid = true;
-    for (final field in _fields) {
-      isValid = field.validate() && isValid; // gọi validator của từng field
-    }
-    return isValid;
-  }
-}
-```
-
-**Tại sao dùng `InheritedWidget`:** `FormField` không cần truyền `FormState` qua constructor — nó tìm tự động qua `Form.maybeOf(context)`. Điều này cho phép form fields ở bất kỳ depth nào trong tree.
+#### Câu hỏi 4: Làm thế nào để tự động cuộn màn hình đến vị trí của ô nhập liệu đầu tiên bị lỗi?
+*Phân tích:*
+1. Gán một `FocusNode` riêng biệt cho từng trường nhập liệu.
+2. Trong hàm `validator`, khi phát hiện lỗi đầu tiên, lưu tham chiếu của `FocusNode` đó vào một biến tạm.
+3. Nếu `validate()` trả về `false`, gọi `focusNode.requestFocus()`.
+4. Khi node nhận tiêu điểm, framework (thông qua `Scrollable.ensureVisible`) sẽ tự động cuộn khung nhìn đưa ô nhập liệu bị lỗi vào giữa màn hình hiển thị.
 
 ---
 
-#### Q5 [Middle] — "Custom `FormField<T>` cho non-text input (e.g., date picker, rating)?"
+#### Câu hỏi 5: Ưu điểm của việc sử dụng `TextFormField` kết hợp `onSaved` so với việc tạo hàng chục `TextEditingController`?
+*Phân tích:*
+Khi biểu mẫu có từ 10 đến 20 trường nhập liệu (như form khai báo y tế, đăng ký hồ sơ):
+- Nếu dùng `TextEditingController`: Phải khởi tạo 20 instance, quản lý 20 biến thành viên, và viết 20 dòng lệnh `dispose()` thủ công để tránh rò rỉ bộ nhớ.
+- Nếu dùng `TextFormField` với `onSaved`: Không cần bất kỳ `TextEditingController` nào. Dữ liệu được trích xuất trực tiếp từ chuỗi thô của từng `FormFieldState` và ánh xạ thẳng vào đối tượng Model chỉ bằng một lệnh gọi `formKey.currentState!.save()`, giúp mã nguồn gọn gàng và an toàn tài nguyên.
 
-**Trả lời chuẩn:**
+---
 
-`FormField<T>` cho phép integrate bất kỳ input widget nào với Form validation system:
+### 5.2 — Bài Tập Phân Tích Luồng Thực Thi (Code Tracing)
+
+#### Đề bài:
+Cho một biểu mẫu với 3 trường nhập liệu có hàm `validator` và `onSaved` như sau:
 
 ```dart
-// Custom FormField cho date picker
-class DatePickerFormField extends FormField<DateTime> {
-  DatePickerFormField({
-    super.key,
-    DateTime? initialValue,
-    FormFieldValidator<DateTime>? validator,
-    FormFieldSetter<DateTime>? onSaved,
-  }) : super(
-    initialValue: initialValue,
-    validator: validator,
-    onSaved: onSaved,
-    builder: (FormFieldState<DateTime> state) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: state.context,
-                initialDate: state.value ?? DateTime.now(),
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2030),
-              );
-              if (picked != null) state.didChange(picked);
-            },
-            child: InputDecorator(
-              decoration: InputDecoration(errorText: state.errorText),
-              child: Text(state.value?.toString() ?? 'Select date'),
-            ),
-          ),
-        ],
-      );
-    },
-  );
+String field1 = 'initial';
+String field2 = 'initial';
+String field3 = 'initial';
+
+// Trường 1:
+validator: (v) => (v == null || v.isEmpty) ? 'Lỗi 1' : null,
+onSaved: (v) => field1 = 'saved_1',
+
+// Trường 2:
+validator: (v) => (v == null || v.length < 5) ? 'Lỗi 2' : null,
+onSaved: (v) => field2 = 'saved_2',
+
+// Trường 3:
+validator: (v) => null, // Luôn hợp lệ
+onSaved: (v) => field3 = 'saved_3',
+```
+
+Người dùng nhập vào các giá trị:
+- Ô 1: `'Flutter'` (Hợp lệ)
+- Ô 2: `'abc'` (Độ dài bằng 3, không hợp lệ)
+- Ô 3: `'Dart'` (Hợp lệ)
+
+Đoạn mã xử lý khi bấm nút Submit:
+```dart
+final isValid = formKey.currentState?.validate() ?? false;
+if (isValid) {
+  formKey.currentState?.save();
 }
-
-// Dùng trong Form
-DatePickerFormField(
-  validator: (date) => date == null ? 'Please select date' : null,
-  onSaved: (date) => _selectedDate = date,
-)
 ```
+
+#### Yêu cầu phân tích:
+1. Biến `isValid` sẽ có giá trị bằng bao nhiêu?
+2. Có bao nhiêu hàm `validator` được thực thi?
+3. Giá trị của 3 biến `field1`, `field2`, `field3` sau khi đoạn mã trên chạy xong là gì?
 
 ---
 
-#### Q6 [Middle] — "`FormField.validator` callback: khi nào được gọi? Return null vs non-null?"
+#### Kết quả phân tích kỹ thuật:
 
-**Trả lời chuẩn:**
+1. **Giá trị của `isValid`:**
+   - Trường 1: Hợp lệ (`null`).
+   - Trường 2: Độ dài 3 < 5 $\to$ Trả về chuỗi `'Lỗi 2'`.
+   - Trường 3: Hợp lệ (`null`).
+   - Do có ít nhất 1 trường trả về chuỗi lỗi, biến `isValid` nhận giá trị **`false`**.
 
-`validator` được gọi khi:
-- `FormState.validate()` được gọi thủ công
-- `AutovalidateMode.onUserInteraction` → sau khi user bắt đầu interact
-- `AutovalidateMode.always` → mỗi rebuild
+2. **Số lượng hàm `validator` được thực thi:**
+   - `FormState.validate()` không dừng sớm mà duyệt qua toàn bộ các phần tử trong danh sách.
+   - Do đó, cả **3 hàm `validator`** đều được thực thi đầy đủ.
 
-**Return value:**
-- `null` → **valid** — không hiện error
-- `String message` → **invalid** — hiện error message bên dưới field
-
-```dart
-TextFormField(
-  validator: (value) {
-    if (value == null || value.isEmpty) return 'Field cannot be empty';
-    if (value.length < 3) return 'Minimum 3 characters';
-    if (!RegExp(r'^[a-zA-Z]+$').hasMatch(value)) return 'Letters only';
-    return null; // ← valid!
-  },
-)
-
-// Cross-field validation (e.g., confirm password)
-TextFormField(
-  validator: (value) {
-    if (value != _passwordController.text) {
-      return 'Passwords do not match';
-    }
-    return null;
-  },
-)
-```
-
-**Lưu ý:** `validate()` **luôn gọi tất cả validators** (không short-circuit) để tất cả error messages hiện cùng lúc.
-
----
-
-#### Q7 [Trace Code] — "`formKey.currentState?.validate()` trả về true/false — điều kiện nào?"
-
-```dart
-final _formKey = GlobalKey<FormState>();
-String? _name;
-String? _email;
-
-Form(
-  key: _formKey,
-  child: Column(children: [
-    TextFormField(
-      validator: (v) {
-        if (v == null || v.isEmpty) return 'Required';
-        return null;
-      },
-      onSaved: (v) => _name = v,
-    ),
-    TextFormField(
-      validator: (v) {
-        if (v == null || v.isEmpty) return 'Required';
-        if (!v.contains('@')) return 'Invalid email';
-        return null;
-      },
-      onSaved: (v) => _email = v,
-    ),
-    ElevatedButton(
-      onPressed: () {
-        final isValid = _formKey.currentState?.validate() ?? false;
-        print('Form valid: $isValid');
-        if (isValid) {
-          _formKey.currentState?.save();
-          print('Name: $_name, Email: $_email');
-        }
-      },
-      child: const Text('Submit'),
-    ),
-  ]),
-)
-```
-
-**Scenario A (form rỗng):**
-```
-Form valid: false
-// name: 'Required' error, email: 'Required' error
-// validate() gọi cả 2 validators (không short-circuit)
-```
-
-**Scenario B (Name='John', Email='notanemail'):**
-```
-Form valid: false
-// name: null (valid), email: 'Invalid email' (invalid)
-// validate() = false
-```
-
-**Scenario C (Name='John', Email='john@example.com'):**
-```
-Form valid: true
-Name: John, Email: john@example.com
-// Cả 2 validators return null → valid
-// validate() = true → save() chạy → onSaved callbacks
-```
+3. **Giá trị của 3 biến sau khi kết thúc:**
+   - Do `isValid == false`, khối lệnh `if (isValid)` không được thực thi $\to$ Phương thức `formKey.currentState?.save()` **không bao giờ được gọi**.
+   - Do đó, các callback `onSaved` không hoạt động.
+   - Cả 3 biến vẫn giữ nguyên giá trị ban đầu:
+     - `field1`: **`'initial'`**
+     - `field2`: **`'initial'`**
+     - `field3`: **`'initial'`**

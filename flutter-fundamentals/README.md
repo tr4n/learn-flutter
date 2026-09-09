@@ -25,14 +25,14 @@
 | **03** | [Widget Lifecycle & Local State](#module-03--widget-lifecycle--local-state) | 5 | Stateful lifecycle, setState, Ticker, Rebuild optimization |
 | **04** | [Layout Engine](#module-04--layout-engine) | 6 | Constraints rule, BoxConstraints, Flex, Stack, Scroll, Responsive |
 | **05** | [Data Passing & InheritedWidget](#module-05--data-passing--inheritedwidget) | 4 | Prop Drilling, InheritedWidget internals, Notifier, Provider |
-| **06** | [Navigation & Routing Basics](#module-06--navigation--routing-basics) | 4 | Navigator 1.0, Data passing, Named routes, Declarative intro |
+| **06** | [Navigation & Routing Basics](#module-06--navigation--routing-basics) | 2 | Navigator 1.0 Imperative, GoRouter Declarative |
 | **07** | [Networking, Assets & Multimedia](#module-07--networking-assets--multimedia) | 4 | Assets, HTTP/Dio, JSON serialization, FutureBuilder |
 | **08** ★ | [Animations Fundamentals](#module-08--animations-fundamentals-bonus) | 4 | Implicit, Explicit, Hero, Staggered |
 | **09** ★ | [Forms & User Input](#module-09--forms--user-input-bonus) | 4 | Gestures, TextField, Form validation, Keyboard |
 
 ★ = Bonus module
 
-**Tổng:** 9 module · 42 chapter · ~14,700 dòng nội dung kỹ thuật
+**Tổng:** 9 module · 40 chapter · ~15,500 dòng nội dung kỹ thuật
 
 ---
 
@@ -98,13 +98,11 @@
 ---
 
 ## Module 06 — Navigation & Routing Basics
-
+ 
 | Bài | File | Nội dung |
 |:---:|:---|:---|
-| 6.1 | [Navigator 1.0 — Push & Pop](./06-navigation-routing-basics/01-navigator-1-push-pop.md) | Stack, Routes, PopScope |
-| 6.2 | [Truyền & Nhận Data Qua Navigator](./06-navigation-routing-basics/02-passing-and-returning-data.md) | Type-safe args, `pop(result)` |
-| 6.3 | [Named Routes & OnGenerateRoute](./06-navigation-routing-basics/03-named-routes-generate-route.md) | `routes:` map vs `onGenerateRoute` |
-| 6.4 | [Triết Lý Declarative Routing](./06-navigation-routing-basics/04-declarative-routing-philosophy.md) | Navigator 2.0, GoRouter intro |
+| 6.1 | [Navigator 1.0 Toàn Diện](./06-navigation-routing-basics/01-navigator-1-imperative-navigation.md) | Stack LIFO, PopScope, Data Passing, Named Routes, onGenerateRoute |
+| 6.2 | [GoRouter & Declarative Routing](./06-navigation-routing-basics/02-gorouter-declarative-navigation.md) | GoRouter, StatefulShellRoute, Auth Guards, Deep Linking |
 
 ---
 

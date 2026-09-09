@@ -22,7 +22,7 @@ learn-flutter/
 │   ├── 03-widget-lifecycle-local-state/     # Lifecycle State, setState, Ticker, Rebuild Optimization
 │   ├── 04-layout-engine/                    # BoxConstraints, Flex (Row/Col), Stack, Slivers, Responsive
 │   ├── 05-data-passing-inherited-widget/    # Prop Drilling, InheritedWidget, Listenable, ValueNotifier
-│   ├── 06-navigation-routing-basics/        # Navigator 1.0, Route Arguments, Pop & Result, Declarative Concept
+│   ├── 06-navigation-routing-basics/        # Navigator 1.0 Toàn diện & GoRouter Declarative Routing
 │   ├── 07-networking-assets-multimedia/     # Assets, Dio HTTP Client, JSON Serialization, FutureBuilder
 │   ├── 08-animations-fundamentals/          # Implicit/Explicit Animations, AnimationController, Hero
 │   └── 09-forms-input-interaction/          # HitTest, FocusNode, FormField Validation, Insets & Keyboard
