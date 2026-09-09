@@ -1,206 +1,327 @@
-# Bài 1.1 — ThemeData, ColorScheme & Material 3
+# Bài 1.1 — Kiến Trúc Giao Diện Material 3: ThemeData, ColorScheme & Không Gian Màu HCT
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
-
-### Tại sao bài này quan trọng?
-
-Material 3 (M3) là design system mới nhất của Google, ra mắt năm 2021 và trở thành default của Flutter từ version 3.16. Toàn bộ code trong `flutter-advanced/` đều giả định bạn hiểu M3 color roles và cách configure theme đúng.
-
-Hiểu ThemeData + ColorScheme cho phép bạn:
-- Build UI nhất quán trên toàn app chỉ bằng cách thay đổi theme
-- Dark mode hoạt động tự động
-- Customize widget theo brand color mà không hardcode màu
-
-### Bạn sẽ hiểu được sau bài này:
-- `ThemeData` cấu trúc và các field quan trọng nhất
-- `ColorScheme.fromSeed()` — cách M3 sinh toàn bộ bảng màu từ 1 seed color
-- 13 color roles của M3 và khi nào dùng role nào
-- `Theme.of(context)` để access theme trong widget
+## Tài Liệu Tham Khảo Chính Thức
+- [Material Design 3: Color system](https://m3.material.io/styles/color/overview)
+- [Flutter Documentation: Material 3 theming](https://docs.flutter.dev/ui/design/material)
+- [Flutter API: ThemeData class](https://api.flutter.dev/flutter/material/ThemeData-class.html)
+- [Flutter API: ColorScheme class](https://api.flutter.dev/flutter/material/ColorScheme-class.html)
+- [Material Color Utilities library](https://pub.dev/packages/material_color_utilities)
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 1 — Khái Niệm & Sự Tiến Hóa Của Hệ Thống Giao Diện (Design System Evolution)
 
-### Material 3 Color System
+### 1.1 — Tiến Hóa Từ Material 2 Sang Material 3
 
-```mermaid
-flowchart TD
-    Seed["seedColor\n(brand color)"]
-    Seed --> CS["ColorScheme.fromSeed()"]
-    CS --> Primary["primary / onPrimary\nPrimaryContainer / onPrimaryContainer"]
-    CS --> Secondary["secondary / onSecondary\nSecondaryContainer / onSecondaryContainer"]
-    CS --> Tertiary["tertiary / onTertiary\nTertiaryContainer / onTertiaryContainer"]
-    CS --> Error["error / onError\nErrorContainer / onErrorContainer"]
-    CS --> Surface["surface / onSurface\nSurfaceVariant / onSurfaceVariant"]
-    CS --> Outline["outline / outlineVariant"]
-
-    Primary -->|"buttons, FAB, key UI"| Widget1["ElevatedButton\nFAB\nCheckbox"]
-    Surface -->|"cards, backgrounds"| Widget2["Card\nScaffold background\nBottomSheet"]
-    Error -->|"validation, alerts"| Widget3["TextField error\nSnackBar error"]
-```
-
-### ThemeData hierarchy
-
-`ThemeData` là root object. Flutter components tự đọc theme — bạn không cần truyền màu tường minh xuống từng widget.
+Material 3 (M3) là phiên bản hệ thống thiết kế mới nhất của Google, được tích hợp làm giao diện mặc định trong Flutter từ phiên bản 3.16. Sự chuyển đổi từ Material 2 (M2) sang Material 3 đại diện cho một bước chuyển biến lớn về triết lý giao diện:
 
 ```
-MaterialApp.theme
-    └── ThemeData
-         ├── colorScheme          ← Toàn bộ màu sắc
-         ├── textTheme            ← Typography (xem bài 1.2)
-         ├── elevatedButtonTheme  ← Override style của ElevatedButton
-         ├── cardTheme            ← Override style của Card
-         ├── inputDecorationTheme ← Override style của TextField
-         └── ... (80+ component themes)
+┌────────────────────────────────────────────────────────────────────────┐
+│ SO SÁNH TRIẾT LÝ THIẾT KẾ: MATERIAL 2 VS MATERIAL 3                   │
+│                                                                        │
+│ Tiêu Chí        Material 2 (M2)               Material 3 (M3)          │
+│ ────────────────────────────────────────────────────────────────────── │
+│ Bảng màu        Cố định (Primary, Accent)     Động (5 Tonal Palettes)  │
+│ Không gian màu  RGB / HSL (Phi tiếp cận)      HCT (Tiếp cận khoa học)  │
+│ Độ cao vật lý   Đổ bóng xám (Drop Shadow)     Phủ màu (surfaceTintColor)│
+│ Nền AppBar      Màu Primary đậm (Áp đảo)      Màu Surface nhẹ nhàng    │
+│ Tùy biến theme  Nhiều thuộc tính phân mảnh   Tập trung vào ColorScheme│
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Trong Flutter hiện đại, toàn bộ hệ thống màu sắc của ứng dụng được quản lý tập trung thông qua **`ColorScheme`**. Các thuộc tính kế thừa cũ của Material 2 (như `primaryColor`, `accentColor`, `backgroundColor`, `buttonColor`) đã bị đánh dấu lỗi thời (deprecated) để nhường chỗ cho hệ thống vai trò màu sắc (Color Roles) của `ColorScheme`.
+
+---
+
+### 1.2 — Cấu Trúc Thứ Bậc Của `ThemeData`
+
+`ThemeData` là đối tượng cấu hình toàn cục cao nhất, được cung cấp thông qua thuộc tính `theme` và `darkTheme` của `MaterialApp`:
+
+```
+MaterialApp
+  └── ThemeData
+       ├── colorScheme           ← Bảng màu M3 (Color Roles)
+       ├── textTheme             ← Hệ thống kiểu chữ (M3 Type Scale)
+       ├── appBarTheme           ← Cấu hình thanh tiêu đề
+       ├── elevatedButtonTheme   ← Cấu hình nút nổi
+       ├── cardTheme             ← Cấu hình thẻ hiển thị (Elevation, Shape)
+       └── extensions            ← Các thuộc tính tùy biến mở rộng (ThemeExtension)
+```
+
+Khi một widget gọi `Theme.of(context)`, nó tìm kiếm thể hiện `ThemeData` gần nhất trong cây widget thông qua cơ chế `InheritedWidget` (`_InheritedTheme`).
+
+---
+
+## Phần 2 — Cơ Chế Hoạt Động Cốt Lõi (Under the Hood)
+
+### 2.1 — Thuật Toán Material Color Utilities & Không Gian Màu HCT
+
+Một trong những hạn chế lớn nhất của không gian màu RGB hay HSL truyền thống là chúng không phản ánh đúng **độ sáng mà mắt người cảm nhận (Perceptual Brightness)**. Ví dụ: Màu vàng thuần (`#FFFF00`) và màu xanh lam thuần (`#0000FF`) đều có `Lightness = 50%` trong mô hình HSL, nhưng trên thực tế mắt người cảm nhận màu vàng sáng hơn rất nhiều so với màu xanh lam.
+
+Material 3 giải quyết vấn đề này bằng việc phát minh ra không gian màu **HCT (Hue, Chroma, Tone)**:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ CẤU TRÚC KHÔNG GIAN MÀU HCT                                            │
+│                                                                        │
+│ • Hue (Sắc tướng):        0° -> 360° (Vị trí trên vòng tròn màu)       │
+│ • Chroma (Độ thuần sắc):  0 -> 120+  (Cường độ / Độ bão hòa màu)       │
+│ • Tone (Độ sáng cảm nhận):0 -> 100   (Độ sáng quang học thực tế)       │
+│                                                                        │
+│ Tone = 0   ──► Đen tuyệt đối (Black)                                   │
+│ Tone = 50  ──► Mức sáng trung tính (Mọi màu có Tone 50 đều sáng như nhau)│
+│ Tone = 100 ──► Trắng tuyệt đối (White)                                 │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Thuật toán sinh màu `ColorScheme.fromSeed()`:
+Khi truyền một màu đơn lẻ vào `ColorScheme.fromSeed(seedColor: color)`, thư viện thuật toán `material_color_utilities` thực hiện các bước sau:
+1. Trích xuất giá trị HCT của `seedColor`.
+2. Tạo ra **5 bảng màu sắc độ (Tonal Palettes)**:
+   - **Primary Palette**: Dựa trên Hue và Chroma của seed color.
+   - **Secondary Palette**: Cùng Hue nhưng giảm bớt Chroma để tạo màu phụ êm dịu.
+   - **Tertiary Palette**: Dịch chuyển Hue một góc khoảng $60^{\circ}$ để tạo màu tương phản bổ trợ.
+   - **Neutral Palette**: Giảm Chroma gần về 0 để tạo màu nền (`surface`).
+   - **Neutral Variant Palette**: Chroma thấp để tạo các đường viền (`outline`) và bề mặt phụ.
+3. Mỗi Tonal Palette được chia thành 13 bậc Tone tiêu chuẩn: $0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100$.
+
+#### Bảo đảm độ tương phản tiếp cận (Accessibility WCAG):
+Trong chế độ sáng (Light Mode):
+- `primary` được lấy từ **Tone 40**.
+- `onPrimary` (chữ/icon trên nền primary) được lấy từ **Tone 100** (Trắng).
+- Khoảng cách Tone: $\Delta = 100 - 40 = 60$. Khoảng cách này bảo đảm tỷ lệ tương phản luôn đạt chuẩn tối thiểu **4.5:1** theo tiêu chuẩn WCAG AA mà không cần lập trình viên phải tính toán thủ công.
+
+---
+
+### 2.2 — Hệ Thống Vai Trò Màu Sắc (Color Roles) Trong Material 3
+
+Material 3 định nghĩa các vai trò màu sắc theo cặp (Một màu nền luôn đi kèm với một màu tiền cảnh có tiền tố `on...`):
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ HỆ THỐNG VAI TRÒ MÀU SẮC (COLOR ROLES)                                 │
+│                                                                        │
+│ [ACCENT ROLES - NHÓM MÀU ĐIỂM NHẤN]                                    │
+│ • primary / onPrimary                 -> Nút chính, FAB, Switch bật    │
+│ • primaryContainer / onPrimaryContainer -> Chip đang chọn, thanh tiến trình│
+│ • secondary / onSecondary             -> Nút phụ, Filter chips         │
+│ • secondaryContainer / onSecondaryContainer -> Chỉ mục NavigationBar   │
+│ • tertiary / onTertiary               -> Điểm nhấn bổ trợ, lịch, badge │
+│ • tertiaryContainer / onTertiaryContainer -> Thẻ cảnh báo nhẹ          │
+│                                                                        │
+│ [SURFACE ROLES - NHÓM MÀU BỀ MẶT]                                      │
+│ • surface / onSurface                 -> Nền Scaffold, Card, Dialog    │
+│ • surfaceContainer / surfaceContainerHigh -> Các tầng nền nâng cao     │
+│                                                                        │
+│ [UTILITY ROLES - NHÓM TIỆN ÍCH]                                        │
+│ • error / onError                     -> Thông báo lỗi nghiêm trọng    │
+│ • errorContainer / onErrorContainer   -> Nền cảnh báo lỗi Form         │
+│ • outline / outlineVariant            -> Viền ô nhập, đường phân cách  │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phần 3 — Code Mẫu Chuẩn Google
+### 2.3 — Cơ Chế Độ Cao Mới: Lớp Phủ Sắc Độ `surfaceTintColor`
 
-### 3.1 — Setup MaterialApp với M3 theme
+Trong Material 2, độ cao (`elevation`) của một thành phần được biểu thị hoàn toàn bằng độ mờ và bán kính đổ bóng xám (Drop Shadow).
+
+Trong Material 3, độ cao được biểu thị kết hợp thông qua:
+1. Độ bóng nhẹ nhàng hơn.
+2. **Lớp phủ sắc tố màu Primary (`surfaceTintColor`)**:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ CƠ CHẾ ELEVATION VÀ SURFACE TINT TRONG MATERIAL 3                      │
+│                                                                        │
+│ Elevation Level 0 (0dp)  ──► surface thuần (Không phủ màu)             │
+│ Elevation Level 1 (1dp)  ──► surface + 5%  màu primary                 │
+│ Elevation Level 2 (3dp)  ──► surface + 8%  màu primary                 │
+│ Elevation Level 3 (6dp)  ──► surface + 11% màu primary                 │
+│ Elevation Level 4 (8dp)  ──► surface + 12% màu primary                 │
+│ Elevation Level 5 (12dp) ──► surface + 14% màu primary                 │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Đặc biệt trong Chế độ tối (Dark Mode), khi đổ bóng xám hoàn toàn vô hình trên nền đen, cơ chế phủ màu sắc độ này giúp người dùng dễ dàng phân biệt thứ bậc không gian của các thẻ (`Card`), hộp thoại (`Dialog`) và tấm trượt (`BottomSheet`).
+
+---
+
+## Phần 3 — Triển Khai Thực Tế
+
+### 3.1 — Xây Dựng Cấu Hình Theme Tập Trung (`AppTheme`)
+
+Đóng gói cấu hình theme thành một lớp riêng biệt với đầy đủ hỗ trợ cho cả Light Mode và Dark Mode:
 
 ```dart
-// main.dart
-void main() => runApp(const MyApp());
+import 'package:flutter/material.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+abstract final class AppTheme {
+  // Màu hạt giống thương hiệu
+  static const Color _seedColor = Color(0xFF0061A4);
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'My App',
-      // useMaterial3: true — bật M3 (default từ Flutter 3.16)
-      theme: _buildLightTheme(),
-      darkTheme: _buildDarkTheme(),
-      // Theo system setting: light/dark/system
-      themeMode: ThemeMode.system,
-      home: const HomeScreen(),
-    );
-  }
-
-  ThemeData _buildLightTheme() {
-    // ColorScheme.fromSeed: sinh toàn bộ bảng màu M3 từ 1 seedColor
-    // Flutter tự tính toán primary, secondary, surface, error... theo M3 algorithm
+  // 1. Cấu hình Light Theme
+  static ThemeData get lightTheme {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF6750A4), // Brand purple
+      seedColor: _seedColor,
       brightness: Brightness.light,
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      // Component theme overrides
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          // Dùng color roles thay vì hardcode màu
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          minimumSize: const Size(88, 48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+      scaffoldBackgroundColor: colorScheme.surface,
+      appBarTheme: AppBarTheme(
+        centerTitle: true,
+        backgroundColor: colorScheme.surface,
+        foregroundColor: colorScheme.onSurface,
+        elevation: 0,
+        scrolledUnderElevation: 3, // Phủ màu nhẹ khi cuộn nội dung bên dưới
       ),
       cardTheme: CardTheme(
         elevation: 1,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        color: colorScheme.surface,
-        surfaceTintColor: colorScheme.primary, // M3 elevation tint
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        surfaceTintColor: colorScheme.surfaceTint,
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: colorScheme.surfaceVariant,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colorScheme.primary, width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colorScheme.error),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
       ),
     );
   }
 
-  ThemeData _buildDarkTheme() {
+  // 2. Cấu hình Dark Theme
+  static ThemeData get darkTheme {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF6750A4),
-      brightness: Brightness.dark, // Tự động sinh màu phù hợp dark mode
+      seedColor: _seedColor,
+      brightness: Brightness.dark,
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      // Component overrides tương tự light theme
+      scaffoldBackgroundColor: colorScheme.surface,
+      appBarTheme: AppBarTheme(
+        centerTitle: true,
+        backgroundColor: colorScheme.surface,
+        foregroundColor: colorScheme.onSurface,
+        elevation: 0,
+        scrolledUnderElevation: 3,
+      ),
+      cardTheme: CardTheme(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        surfaceTintColor: colorScheme.surfaceTint,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        ),
+      ),
     );
   }
 }
 ```
 
-### 3.2 — Sử dụng color roles trong widget
+Áp dụng vào `MaterialApp`:
+```dart
+MaterialApp(
+  title: 'Hệ Thống Giao Diện M3',
+  theme: AppTheme.lightTheme,
+  darkTheme: AppTheme.darkTheme,
+  themeMode: ThemeMode.system, // Tự động theo cài đặt hệ điều hành
+  home: const HomeScreen(),
+);
+```
+
+---
+
+### 3.2 — Áp Dụng Color Roles Đúng Chuẩn Trong Widget
+
+Sử dụng trực tiếp các vai trò màu sắc từ `Theme.of(context).colorScheme` thay vì khai báo màu cố định:
 
 ```dart
-// Dùng Theme.of(context).colorScheme — KHÔNG hardcode màu
-class ProductCard extends StatelessWidget {
-  final Product product;
-  const ProductCard({super.key, required this.product});
+import 'package:flutter/material.dart';
+
+class ProductSummaryCard extends StatelessWidget {
+  final String title;
+  final String category;
+  final double price;
+
+  const ProductSummaryCard({
+    super.key,
+    required this.title,
+    required this.category,
+    required this.price,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Access theme một lần, destructure để dễ dùng
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
+    // Truy xuất ColorScheme từ ngữ cảnh hiện tại
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Primary container: nền nhẹ cho highlight content
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: cs.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                product.category,
-                style: tt.labelSmall?.copyWith(color: cs.onPrimaryContainer),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Nhãn danh mục: Dùng secondaryContainer và onSecondaryContainer
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    category,
+                    style: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSecondaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                // Giá sản phẩm: Điểm nhấn dùng primary
+                Text(
+                  '${price.toStringAsFixed(2)} đ',
+                  style: textTheme.titleMedium?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(product.name, style: tt.titleMedium),
+            const SizedBox(height: 12),
+
+            // Tiêu đề: Dùng onSurface
             Text(
-              product.price,
-              style: tt.headlineSmall?.copyWith(color: cs.primary),
+              title,
+              style: textTheme.titleLarge?.copyWith(
+                color: colorScheme.onSurface,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
+
+            // Nút hành động chính: FilledButton mặc định dùng primary và onPrimary
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Secondary: action ít quan trọng hơn primary action
                 OutlinedButton(
                   onPressed: () {},
-                  child: const Text('Lưu'),
+                  child: const Text('Xem Chi Tiết'),
                 ),
                 const SizedBox(width: 8),
-                // Primary: main action
-                FilledButton(
+                FilledButton.icon(
                   onPressed: () {},
-                  child: const Text('Mua'),
+                  icon: const Icon(Icons.add_shopping_cart, size: 18),
+                  label: const Text('Chọn Mua'),
                 ),
               ],
             ),
@@ -212,134 +333,159 @@ class ProductCard extends StatelessWidget {
 }
 ```
 
-### 3.3 — ColorScheme roles reference
-
-```dart
-// M3 Color Roles — khi nào dùng role nào:
-void colorRolesGuide(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-
-  // PRIMARY: FAB, key buttons, active states
-  // ON_PRIMARY: text/icon trên nền primary
-  cs.primary; cs.onPrimary;
-
-  // PRIMARY_CONTAINER: nền nhẹ hơn primary (chip, selected items)
-  // ON_PRIMARY_CONTAINER: text trên nền primaryContainer
-  cs.primaryContainer; cs.onPrimaryContainer;
-
-  // SECONDARY: chip, filter, less prominent actions
-  cs.secondary; cs.onSecondary;
-  cs.secondaryContainer; cs.onSecondaryContainer;
-
-  // TERTIARY: complementary accent (calendar, progress)
-  cs.tertiary; cs.onTertiary;
-  cs.tertiaryContainer; cs.onTertiaryContainer;
-
-  // SURFACE: backgrounds (cards, sheets, menus)
-  // ON_SURFACE: body text, icons trên surface
-  cs.surface; cs.onSurface;
-
-  // SURFACE_VARIANT: chips, text fields background
-  // ON_SURFACE_VARIANT: placeholder text, icons
-  cs.surfaceVariant; cs.onSurfaceVariant;
-
-  // ERROR: validation, alerts
-  cs.error; cs.onError;
-  cs.errorContainer; cs.onErrorContainer;
-
-  // OUTLINE: borders, dividers
-  // OUTLINE_VARIANT: softer borders
-  cs.outline; cs.outlineVariant;
-}
-```
-
 ---
 
-## Phần 4 — Lỗi Sai Phổ Biến & Best Practices
+## Phần 4 — Lỗi Kỹ Thuật Thường Gặp & Biện Pháp Khắc Phục (Pitfalls & Solutions)
 
-### ❌ Anti-pattern 1: Hardcode màu thay vì dùng color roles
+### 4.1 — Khởi tạo `ThemeData` bên trong phương thức `build()`
 
+#### Mô tả vấn đề:
+Khai báo `theme: ThemeData(...)` trực tiếp bên trong phương thức `build()` của widget gốc:
 ```dart
-// ❌ Không tốt: hardcode màu → dark mode bị sai, không thể rebrand
-Container(
-  color: const Color(0xFF6750A4), // Brand color hardcode
-  child: Text(
-    'Hello',
-    style: const TextStyle(color: Colors.white), // Hardcode white
-  ),
-)
-
-// ✅ Dùng color roles — tự động đúng ở cả light/dark mode
-Container(
-  color: Theme.of(context).colorScheme.primary,
-  child: Text(
-    'Hello',
-    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
-  ),
-)
-```
-
-### ❌ Anti-pattern 2: Tạo ThemeData trong build()
-
-```dart
-// ❌ ThemeData được tạo lại mỗi rebuild
+// Lỗi: Tái tạo ThemeData ở mỗi lần App rebuild
+@override
 Widget build(BuildContext context) {
   return MaterialApp(
-    theme: ThemeData(colorScheme: ColorScheme.fromSeed(...)), // Tạo mới mỗi build!
+    theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue)),
   );
 }
-
-// ✅ Tạo một lần trong const hoặc tách ra method
-final _lightTheme = ThemeData(
-  useMaterial3: true,
-  colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
-);
-
-MaterialApp(theme: _lightTheme)
 ```
 
-### ❌ Anti-pattern 3: Bật M3 nhưng quên useMaterial3: true
+#### Nguyên nhân kỹ thuật:
+`ThemeData` là một đối tượng cấu hình đồ sộ gồm hàng chục bảng màu, kiểu chữ và component themes. Việc tạo mới ở mỗi lần widget rebuild sẽ tiêu tốn CPU, làm vô hiệu hóa bộ nhớ đệm hình ảnh và kích hoạt rebuild toàn bộ cây widget không cần thiết.
 
-```dart
-// ❌ Thiếu useMaterial3 → widgets render theo M2 style
-ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue))
-// FloatingActionButton, NavigationBar... trông như M2
-
-// ✅ Luôn khai báo tường minh
-ThemeData(
-  useMaterial3: true, // BẮT BUỘC với M3 color system
-  colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-)
-```
+#### Biện pháp khắc phục:
+Khởi tạo cấu hình theme dưới dạng biến tĩnh (`static final`) hoặc lưu trữ trong các singleton/controller.
 
 ---
 
-## Phần 5 — Bài Tập Củng Cố Tư Duy
+### 4.2 — Hardcode màu tĩnh thay vì dùng ColorScheme Roles
 
-### Challenge: Branded App Theme
+#### Mô tả vấn đề:
+Sử dụng các màu cố định như `Colors.white`, `Colors.black`, hoặc mã Hex trực tiếp trong giao diện:
+```dart
+// Lỗi: Khi chuyển sang Dark Mode, nền đen chữ vẫn màu đen -> Chữ vô hình!
+Text(
+  'Thông báo',
+  style: TextStyle(color: Colors.black),
+)
+```
 
-**Yêu cầu:**
-1. Tạo `AppTheme` class với `static ThemeData light` và `static ThemeData dark`
-2. Seed color: `#1B6CA8` (deep blue)
-3. Override: `AppBar` background = `colorScheme.surface` (không phải primary — M3 standard)
-4. Override: `FloatingActionButton` dùng `tertiaryContainer` thay vì `primary`
-5. `NavigationBar` selected indicator = `secondaryContainer`
-6. Viết widget nhỏ hiển thị tất cả 13 color roles thành dải màu
+#### Biện pháp khắc phục:
+Luôn đọc màu từ `Theme.of(context).colorScheme`:
+- Màu chữ thông thường: `colorScheme.onSurface`.
+- Màu chữ thứ cấp / phụ đề: `colorScheme.onSurfaceVariant`.
+- Màu chữ trên nút bấm chính: `colorScheme.onPrimary`.
 
-**Gợi ý:**
-- `AppBarTheme(backgroundColor: colorScheme.surface, foregroundColor: colorScheme.onSurface)`
-- `FloatingActionButtonThemeData(backgroundColor: colorScheme.tertiaryContainer)`
+---
 
-### Thử thách thẩm định kỹ thuật:
+### 4.3 — Quên đặt `useMaterial3: true` trên các phiên bản Flutter cũ
 
-1. **"ColorScheme.fromSeed vs ColorScheme.fromSwatch khác nhau như thế nào?"**
-   - `fromSeed`: M3 algorithm, sinh toàn bộ palette từ seed — recommended
-   - `fromSwatch`: M2 style, ít color roles hơn
+#### Mô tả vấn đề:
+Sử dụng `ColorScheme.fromSeed()` nhưng các thành phần như `AppBar`, `FloatingActionButton`, `NavigationBar` vẫn hiển thị theo phong cách Material 2 (hình vuông, đổ bóng đậm, AppBar màu tím đậm).
 
-2. **"Tại sao AppBar trong M3 thường dùng surface thay vì primary?"**
-   - M3 guideline: AppBar là surface, primary chỉ dùng cho actions
-   - Tránh "purple bar" effect — màu sắc nặng nề
+#### Biện pháp khắc phục:
+Trong các phiên bản Flutter trước 3.16, luôn khai báo tường minh `useMaterial3: true` trong `ThemeData`. (Từ Flutter 3.16 trở lên, cờ này đã mặc định là `true`).
 
-3. **"SurfaceTintColor trong CardTheme dùng để làm gì?"**
-   - M3 elevation model: thay vì shadow, dùng tint màu primary để biểu thị độ cao
-   - Càng cao elevation → tint càng đậm
+---
+
+### 4.4 — Gán màu nền mà không gán cặp màu chữ tương ứng
+
+#### Mô tả vấn đề:
+Tự đặt màu nền là `colorScheme.primaryContainer` nhưng giữ nguyên màu chữ mặc định.
+
+#### Nguyên nhân kỹ thuật:
+Trong Dark Mode, `primaryContainer` là một màu tối có sắc độ trầm, trong khi ở Light Mode nó là một màu nhạt. Nếu không sử dụng đúng màu chữ đối ứng (`colorScheme.onPrimaryContainer`), độ tương phản sẽ bị vi phạm, khiến nội dung bị mờ hoặc chìm vào nền.
+
+#### Biện pháp khắc phục:
+Luôn áp dụng nguyên tắc đi theo cặp: Nền `[Role]` luôn đi kèm chữ `on[Role]`.
+
+---
+
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Phân Tích Mã Nguồn (Deep-Dive & Code Tracing)
+
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
+
+#### Câu hỏi 1: Tại sao thuật toán HCT có thể sinh ra màu `primary` có mã Hex khác hoàn toàn so với mã Hex của `seedColor` truyền vào?
+*Phân tích:*
+Khi truyền một `seedColor` vào `ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light)`, thuật toán chỉ trích xuất **Hue (Sắc tướng)** và **Chroma (Độ thuần sắc)** từ hạt giống đó. Thuộc tính **Tone** ban đầu của `seedColor` bị loại bỏ và thay thế bằng mốc **Tone 40** cố định cho thuộc tính `primary` trong Light Mode. Do đó, nếu bạn truyền vào một màu xanh rất sáng (`Tone 90`), mã Hex của `primary` tạo ra sẽ đậm hơn nhiều so với màu gốc để bảo đảm tỷ lệ tương phản tiếp cận với màu chữ trắng (`Tone 100`).
+
+---
+
+#### Câu hỏi 2: Sự khác biệt bản chất giữa `ColorScheme.fromSeed` và `ColorScheme.fromSwatch` là gì?
+*Phân tích:*
+- **`ColorScheme.fromSwatch`**: Là giải pháp của Material 2. Nó dựa trên bảng màu cố định `MaterialColor` (các nấc từ 50 đến 900) được pha thủ công bằng cách trộn màu trắng/đen trong không gian RGB. Nó không hỗ trợ các vai trò màu mới của M3 (như `surfaceContainer`, `tertiaryContainer`).
+- **`ColorScheme.fromSeed`**: Là giải pháp của Material 3. Sử dụng mô hình toán học HCT để tính toán động 5 Tonal Palettes độc lập, tự động phân bổ chính xác cho hơn 30 vai trò màu sắc và tự động điều chỉnh độ sáng tối ưu cho cả hai chế độ Light và Dark.
+
+---
+
+#### Câu hỏi 3: Lớp `InheritedTheme` hoạt động như thế nào khi ứng dụng hiển thị một Dialog hoặc BottomSheet?
+*Phân tích:*
+Dialog và Modal BottomSheet được hiển thị thông qua `Navigator` trên một Route hoàn toàn mới, nằm ở một nhánh con độc lập của `OverlayEntry`. Nếu không có cơ chế đặc biệt, Route mới này sẽ không thừa hưởng được các cấu hình theme cục bộ của màn hình hiện tại. Phương thức `showDialog` sử dụng `InheritedTheme.capture(from: context, to: navigatorContext)` để thu thập toàn bộ các `InheritedTheme` tại vị trí gọi và bọc chúng xung quanh widget con của Dialog, bảo đảm tính nhất quán về mặt giao diện.
+
+---
+
+#### Câu hỏi 4: Thuộc tính `scrolledUnderElevation` trong `AppBarTheme` có cơ chế hoạt động như thế nào?
+*Phân tích:*
+Trong Material 3, khi màn hình ở trạng thái đứng yên tại đỉnh, `AppBar` có màu nền hoàn toàn trùng khớp với `scaffoldBackgroundColor` (`elevation = 0`). Khi người dùng cuộn nội dung bên dưới (được phát hiện thông qua `ScrollNotificationListener`), `AppBar` tự động kích hoạt `scrolledUnderElevation` (mặc định là `3.0`). Tại mức độ cao này, lớp phủ sắc tố `surfaceTintColor` được kích hoạt, làm màu nền AppBar hơi ngả sang tông màu Primary để phân tách rõ ràng với nội dung đang cuộn bên dưới.
+
+---
+
+#### Câu hỏi 5: Làm thế nào để hỗ trợ các màu sắc thương hiệu không nằm trong hệ thống Color Roles của Material 3?
+*Phân tích:*
+Không nên cố tình gán các màu thương hiệu đặc thù vào các trường không đúng ngữ nghĩa của `ColorScheme` (ví dụ gán màu thành công Success vào trường `tertiary`). Giải pháp kỹ thuật chuẩn của Flutter là tạo một lớp kế thừa từ **`ThemeExtension<T>`** (ví dụ: `AppCustomColors extends ThemeExtension<AppCustomColors>`), đăng ký vào mảng `ThemeData.extensions`, và truy xuất trong widget bằng cú pháp `Theme.of(context).extension<AppCustomColors>()`.
+
+---
+
+### 5.2 — Bài Tập Phân Tích Luồng Thực Thi (Code Tracing)
+
+#### Đề bài:
+Cho bảng phân bổ Tone trong thuật toán Material Color Utilities:
+- Trong **Light Mode**:
+  - `primary` = Tone 40
+  - `onPrimary` = Tone 100
+  - `primaryContainer` = Tone 90
+  - `onPrimaryContainer` = Tone 10
+- Trong **Dark Mode**:
+  - `primary` = Tone 80
+  - `onPrimary` = Tone 20
+  - `primaryContainer` = Tone 30
+  - `onPrimaryContainer` = Tone 90
+
+Cho một widget hiển thị nhãn văn bản:
+```dart
+Container(
+  color: theme.colorScheme.primaryContainer,
+  child: Text('Dữ liệu', style: TextStyle(color: theme.colorScheme.onPrimaryContainer)),
+)
+```
+
+#### Yêu cầu phân tích:
+1. Hãy tính toán độ chênh lệch Tone ($\Delta \text{Tone}$) giữa màu nền và màu chữ trong **Light Mode**.
+2. Hãy tính toán độ chênh lệch Tone ($\Delta \text{Tone}$) giữa màu nền và màu chữ trong **Dark Mode**.
+3. Điều gì sẽ xảy ra về mặt thị giác nếu lập trình viên hardcode màu chữ là `Colors.white` thay vì sử dụng `onPrimaryContainer` khi ứng dụng đang ở Light Mode?
+
+---
+
+#### Kết quả phân tích kỹ thuật:
+
+1. **Độ chênh lệch Tone trong Light Mode:**
+   - Màu nền `primaryContainer` = Tone 90 (Nền rất sáng).
+   - Màu chữ `onPrimaryContainer` = Tone 10 (Chữ rất đậm).
+   - Độ chênh lệch:
+     $$\Delta \text{Tone} = |90 - 10| = \mathbf{80}$$
+   *(Độ tương phản vượt xa tiêu chuẩn WCAG AAA, chữ hiển thị sắc nét trên nền sáng).*
+
+2. **Độ chênh lệch Tone trong Dark Mode:**
+   - Màu nền `primaryContainer` = Tone 30 (Nền tối).
+   - Màu chữ `onPrimaryContainer` = Tone 90 (Chữ sáng).
+   - Độ chênh lệch:
+     $$\Delta \text{Tone} = |30 - 90| = \mathbf{60}$$
+   *(Độ tương phản đạt tiêu chuẩn WCAG AA, bảo đảm khả năng đọc trong môi trường thiếu sáng).*
+
+3. **Hiện tượng khi hardcode `Colors.white` trong Light Mode:**
+   - Màu chữ `Colors.white` có giá trị quang học tương đương Tone 100.
+   - Màu nền `primaryContainer` có Tone 90.
+   - Độ chênh lệch:
+     $$\Delta \text{Tone} = |90 - 100| = \mathbf{10}$$
+   - **Hậu quả thị giác**: Độ chênh lệch chỉ đạt 10 đơn vị (dưới ngưỡng tối thiểu). Người dùng gần như **không thể đọc được dòng chữ** (chữ trắng gần như biến mất trên nền màu nhạt), vi phạm tiêu chuẩn tiếp cận (Accessibility Failure).
