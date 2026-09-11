@@ -1,551 +1,614 @@
 # Bài 1.1: Feature-First Architecture for 100+ Screens
 
 > **Cấp độ**: Principal / Staff Engineer  
-> **Thời gian đọc**: ~25 phút  
-> **Yêu cầu**: Đã biết Clean Architecture cơ bản, đã từng làm dự án Flutter >20 screens
+> **Thời gian đọc**: ~30 phút  
+> **Yêu cầu**: Nắm vững Clean Architecture cơ bản; có kinh nghiệm vận hành dự án Flutter quy mô trên 20 màn hình.
 
 ---
 
-## Phần 1 — Architecture & Problem Statement
-
-### Bài toán thực tế
-
-Bạn đang Tech Lead một ứng dụng Super App với:
-- **120 màn hình** (screens) phân chia thành 12 domain: Auth, Home, Catalog, Search, Product Detail, Cart, Checkout, Orders, Profile, Notifications, Promotions, Settings.
-- **15 developers** làm việc đồng thời, chia thành 4 squad: Platform, Commerce, User, Marketing.
-- **Release cycle**: 2 tuần/sprint, yêu cầu feature flag để bật/tắt tính năng độc lập.
-- **Vấn đề quan sát được**: Mỗi sprint có **30-50 Merge Conflict** ở các file dùng chung như `router.dart`, `di_container.dart`, `theme.dart`. Thêm 1 tính năng mới tốn 2-3 ngày chỉ để tìm file và hiểu dependency.
-
-**Câu hỏi cần trả lời**:
-1. Tổ chức thư mục theo kiểu gì để giảm Merge Conflict xuống dưới 5/sprint?
-2. Quy tắc nào quyết định code nào là "shared" và code nào là "feature-specific"?
-3. Làm thế nào để một developer mới onboard trong 1 ngày mà không cần hỏi đồng nghiệp?
+## Dẫn Chiếu Tài Liệu Chính Thức
+- **Flutter App Architecture Guide**: [docs.flutter.dev/app-architecture](https://docs.flutter.dev/app-architecture)
+- **Domain-Driven Design (Eric Evans) — Bounded Contexts**: [martinfowler.com/bliki/BoundedContext.html](https://martinfowler.com/bliki/BoundedContext.html)
+- **Vertical Slice Architecture (Jimmy Bogard)**: [jimmybogard.com/vertical-slice-architecture/](https://jimmybogard.com/vertical-slice-architecture/)
+- **Dart Package Layout Conventions**: [dart.dev/tools/pub/package-layout](https://dart.dev/tools/pub/package-layout)
 
 ---
 
-## Phần 2 — Low-Level Mechanics
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
 
-### 2.1. Giải phẫu 2 chiến lược tổ chức
+### 1.1 — Nó Là Gì? Bản Chất Kiến Trúc Feature-First (Vertical Slicing)
+Feature-First Architecture (còn được gọi là Kiến trúc Lát Cắt Dọc - Vertical Slice Architecture) là phương pháp tổ chức mã nguồn trong đó toàn bộ hệ thống được chia nhỏ theo ranh giới nghiệp vụ (Business Domains), thay vì chia theo phân tầng kỹ thuật ngang (Layer-First / Horizontal Slicing).
 
-#### Layer-First (Theo tầng — phổ biến nhưng không scale)
-
-```
-lib/
-├── data/
-│   ├── repositories/
-│   │   ├── auth_repository.dart
-│   │   ├── product_repository.dart
-│   │   └── order_repository.dart       ← developer A và B đều sửa đây
-│   ├── datasources/
-│   └── models/
-├── domain/
-│   ├── entities/
-│   ├── usecases/
-│   └── repositories/
-└── presentation/
-    ├── screens/
-    │   ├── home/
-    │   ├── cart/
-    │   └── product/
-    ├── widgets/
-    └── blocs/
-```
-
-**Điểm gãy của Layer-First khi scale:**
+Trong cấu trúc này, ứng dụng được phân định nghiêm ngặt thành 3 vùng độc lập:
+1. **`core/`**: Chứa hạ tầng nền tảng bất biến dùng chung cho toàn bộ ứng dụng (Network client, Error models, Theme tokens, DI container gốc, Storage drivers). `core/` không phụ thuộc vào bất kỳ feature nào.
+2. **`shared/`**: Chứa các UI Components (Buttons, Dialogs, Cards) và các Domain Value Objects (Money, Currency, Address) được tái sử dụng bởi $\ge 2$ features.
+3. **`features/<feature_name>/`**: Mỗi thư mục con là một đơn vị tính năng tự trị (Autonomous Vertical Slice) bao gồm đầy đủ cả 3 tầng nội bộ: `domain`, `data`, và `presentation`.
 
 ```
-Tuần 1: Developer A (Squad Commerce) thêm OrderRepository method
-         → sửa: data/repositories/order_repository.dart
-
-Tuần 1: Developer B (Squad Marketing) thêm PromoCode vào Order
-         → sửa: data/repositories/order_repository.dart  ← CONFLICT
-                 data/models/order_model.dart              ← CONFLICT
-                 domain/usecases/apply_promo_usecase.dart
-
-Sprint 2: Developer C (Squad Platform) refactor error handling
-         → sửa: data/repositories/*.dart (tất cả 15 file)  ← MEGA CONFLICT
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      HỆ THỐNG FEATURE-FIRST TỔNG THỂ                    │
+│                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │ features/auth/      features/catalog/      features/cart/       │   │
+│   │ (domain/data/ui)    (domain/data/ui)       (domain/data/ui)     │   │
+│   └───────────────┬───────────────────────────────┬─────────────────┘   │
+│                   │ Phụ thuộc (Depends on)        │                     │
+│                   ▼                               ▼                     │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │ shared/           (Reusable UI Widgets & Shared Value Objects)  │   │
+│   └───────────────────────────────┬─────────────────────────────────┘   │
+│                                   │ Phụ thuộc                           │
+│                                   ▼                                     │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │ core/             (Network, Storage, Base Error, Root Router)   │   │
+│   └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Mỗi khi có cross-cutting concern (logging, error handling, pagination), developer phải mở 3 thư mục xa nhau. File `router.dart` là "hot file" bị tất cả team chạm vào.
+---
 
-#### Feature-First (Theo tính năng — khuyến nghị cho 20+ screens)
+### 1.2 — Giải Quyết Bài Toán Gì? Thách Thức Khi Scale 100+ Màn Hình & Đa Squad
+Khi một dự án mở rộng lên quy mô 100–150 màn hình với 15–30 kỹ sư chia thành nhiều squad (Platform, Commerce, User, Marketing), mô hình Layer-First truyền thống bộc lộ các điểm gãy chí mạng:
 
-```
-lib/
-├── core/                               ← Shared giữa TẤT CẢ features
-│   ├── di/                             ← DI registration gốc
-│   ├── error/                          ← Kiểu lỗi chia sẻ (AppException, Failure)
-│   ├── network/                        ← Dio client, interceptors
-│   ├── router/                         ← GoRouter root config
-│   ├── theme/                          ← Design tokens
-│   └── utils/                          ← Pure Dart helpers
-│
-├── shared/                             ← Widget/Logic dùng bởi ≥2 features
-│   ├── widgets/
-│   │   ├── app_button.dart
-│   │   ├── product_card.dart           ← Dùng bởi Catalog VÀ Search
-│   │   └── price_display.dart
-│   └── domain/
-│       └── entities/
-│           └── money.dart              ← Value object dùng nhiều nơi
-│
-└── features/                           ← Mỗi sub-folder là 1 vertical slice
-    ├── auth/
-    │   ├── data/
-    │   │   ├── datasources/
-    │   │   │   ├── auth_remote_datasource.dart
-    │   │   │   └── auth_local_datasource.dart
-    │   │   ├── models/
-    │   │   │   └── user_dto.dart
-    │   │   └── repositories/
-    │   │       └── auth_repository_impl.dart
-    │   ├── domain/
-    │   │   ├── entities/
-    │   │   │   └── user.dart
-    │   │   ├── repositories/
-    │   │   │   └── auth_repository.dart    ← Interface (abstract)
-    │   │   └── usecases/
-    │   │       ├── sign_in_usecase.dart
-    │   │       └── refresh_token_usecase.dart
-    │   └── presentation/
-    │       ├── screens/
-    │       │   ├── login_screen.dart
-    │       │   └── register_screen.dart
-    │       ├── blocs/
-    │       │   └── auth_bloc.dart
-    │       └── widgets/
-    │           └── social_login_button.dart
-    │
-    ├── catalog/
-    │   ├── data/ ...
-    │   ├── domain/ ...
-    │   └── presentation/ ...
-    │
-    ├── cart/
-    │   ├── data/ ...
-    │   ├── domain/ ...
-    │   └── presentation/ ...
-    │
-    └── orders/
-        ├── data/ ...
-        ├── domain/ ...
-        └── presentation/ ...
-```
+1. **Xung đột mã nguồn bão táp (Merge Conflict Storms)**:
+   - Trong Layer-First, tất cả repositories nằm chung tại `lib/data/repositories/`, tất cả routes nằm trong một tệp `router.dart`, và tất cả đăng ký DI nằm trong `di.dart`.
+   - Các tệp này trở thành **"Hot Files"**. Mỗi sprint phát sinh từ 30 đến 50 merge conflicts cần giải quyết thủ công, làm tăng nguy cơ ghi đè hoặc vô tình làm mất code của squad khác.
+2. **Thời gian định vị mã nguồn và Onboarding kéo dài**:
+   - Khi cần thêm hoặc sửa đổi tính năng "Áp mã khuyến mãi cho đơn hàng", một kỹ sư phải mở từ 8 đến 12 tệp tin phân tán ở 4 góc của dự án (`data/models/`, `data/repositories/`, `domain/usecases/`, `presentation/blocs/`, `presentation/screens/`). Kỹ sư mới mất từ 3 đến 4 ngày chỉ để hình dung luồng dữ liệu.
+3. **Phá vỡ ranh giới tính năng và khó áp dụng Feature Flags**:
+   - Khi các tầng bị trộn lẫn, việc bật/tắt hoặc tách riêng một tính năng để thử nghiệm A/B Testing hoặc phân phối động (Deferred Loading) đòi hỏi phải bóc tách thủ công hàng loạt class bị dính chùm.
 
-### 2.2. Quy tắc phân tầng "Tam giác phụ thuộc"
+---
+
+### 1.3 — Bảng So Sánh Chi Tiết: Feature-First vs Layer-First
+
+| Tiêu Chí Kỹ Thuật | Layer-First (Phân Tầng Ngang) | Feature-First (Lát Cắt Dọc) |
+| :--- | :--- | :--- |
+| **Tiêu chí gom nhóm** | Theo vai trò kỹ thuật (`models`, `views`). | Theo ranh giới nghiệp vụ (`auth`, `checkout`). |
+| **Mức độ ghép nối (Coupling)** | Cao; thay đổi 1 feature ảnh hưởng thư mục chung. | Thấp; các feature bị cô lập hoàn toàn. |
+| **Tần suất Merge Conflicts** | Rất cao (30–50 conflicts/sprint trên hot files). | Tối thiểu (<5 conflicts/sprint). |
+| **Thời gian onboard kỹ sư mới** | 3–5 ngày để nắm sơ đồ thư mục. | 4–6 giờ (chỉ cần tập trung vào 1 feature). |
+| **Khả năng tách Module/Monorepo** | Rất khó; đòi hỏi tái cấu trúc toàn bộ dự án. | Tự nhiên; dễ dàng đóng gói thành Melos package. |
+| **Quy mô phù hợp** | Dưới 15–20 màn hình, nhóm $\le 3$ người. | **Enterprise: 20–200+ màn hình, $\ge 5$ người.** |
+
+---
+
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+- Nắm vững **Quy tắc Tam giác Phụ thuộc (Dependency Triangle)** và áp dụng ranh giới ngữ cảnh (Bounded Contexts) chuẩn mực.
+- Thiết lập quy trình ra quyết định chuẩn hóa: "Tệp tin này phải đặt ở đâu?" (Decision Tree).
+- Hiện thực hóa kiến trúc định tuyến phi tập trung (**Federated Routing**) để triệt tiêu hoàn toàn merge conflict trên Router.
+- Xây dựng mô đun tính năng hoàn chỉnh, tự trị (Autonomous Module) với Public API rõ ràng.
+- Thiết lập cơ chế kiểm soát ranh giới phụ thuộc tự động trên hệ thống CI/CD.
+
+---
+
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
+
+### 2.1 — Quy Tắc Tam Giác Phụ Thuộc (The Dependency Triangle) & Bounded Contexts
+Để đảm bảo hệ thống không bị biến chất thành mạng nhện phụ thuộc (Spaghetti Dependencies), kiến trúc Feature-First áp dụng quy tắc luồng phụ thuộc một chiều nghiêm ngặt:
 
 ```
               ┌──────────────────────────────────────┐
-              │         features/auth/                │
-              │         features/catalog/             │
-              │         features/cart/                │ ← Phụ thuộc shared + core
-              │         features/orders/              │
+              │          features/<name>/            │
+              │   (auth, catalog, cart, orders)      │ ── Phụ thuộc: shared/ + core/
               └──────────────────┬───────────────────┘
                                  │ depends on
               ┌──────────────────▼───────────────────┐
-              │         shared/                       │
-              │  (ProductCard, MoneyEntity, PriceWidget)│ ← Phụ thuộc core
+              │              shared/                 │
+              │   (Common UI, Domain Value Objects)  │ ── Phụ thuộc: core/
               └──────────────────┬───────────────────┘
                                  │ depends on
               ┌──────────────────▼───────────────────┐
-              │              core/                    │
-              │  (Network, Error, Router, DI, Theme)  │ ← Không phụ thuộc ai
+              │               core/                  │
+              │   (Network, Storage, Base Contracts) │ ── KHÔNG PHỤ THUỘC AI
               └──────────────────────────────────────┘
-
-QUY TẮC BẤT BIẾN:
-- Chiều phụ thuộc CHỈ đi từ trên xuống dưới.
-- features/ KHÔNG BAO GIỜ import lẫn nhau.
-- shared/ KHÔNG import features/.
-- core/ KHÔNG import shared/ hoặc features/.
 ```
 
-### 2.3. Quy tắc "Code ở đâu?" — Decision Tree
+**Các Định Luật Bất Biến (Invariants)**:
+1. **Chiều phụ thuộc chỉ đi từ trên xuống dưới**: `features/` phụ thuộc vào `shared/` và `core/`. `shared/` chỉ phụ thuộc vào `core/`. `core/` đứng độc lập tại đáy.
+2. **Cấm phụ thuộc ngang (No Cross-Feature Imports)**: `features/auth/` **tuyệt đối không được phép** import bất kỳ tệp tin nào từ `features/cart/`.
+3. **Cấm phụ thuộc ngược**: `core/` không được phép biết bất kỳ thông tin nào về `shared/` hay `features/`.
+
+---
+
+### 2.2 — Decision Tree: Phân Định Ranh Giới Mã Nguồn
+Khi một kỹ sư chuẩn bị tạo một tệp tin mới, cây quyết định sau đây xác định vị trí chính xác của tệp tin:
 
 ```
-Code mới cần viết
+Mã nguồn mới cần viết
        │
        ▼
-Có dùng bởi ≥2 features?
+Có được sử dụng bởi ≥ 2 features khác nhau không?
        │
-   YES ▼                   NO ▼
-shared/ hoặc core/     Nằm trong features/<tên_feature>/
+       ├─► [KHÔNG] ──► Đặt bên trong: features/<feature_name>/
        │
-       ▼
-Là infrastructure (network, DI, routing)?
-       │
-   YES ▼                   NO ▼
-   core/               shared/
-```
-
-### 2.4. Cách tổ chức router tránh hot file conflict
-
-**Anti-pattern (hot file):**
-```dart
-// ❌ Tất cả routes trong 1 file → 15 developers cùng sửa
-// lib/core/router/router.dart
-final router = GoRouter(
-  routes: [
-    GoRoute(path: '/login', ...),
-    GoRoute(path: '/catalog', ...),
-    GoRoute(path: '/cart', ...),
-    // ... 117 routes nữa
-  ],
-);
-```
-
-**Pattern đúng (Federated Routes):**
-```dart
-// lib/core/router/router.dart ← Chỉ là assembler, không ai conflict
-final router = GoRouter(
-  routes: [
-    ...authRoutes,      // từ features/auth/
-    ...catalogRoutes,   // từ features/catalog/
-    ...cartRoutes,      // từ features/cart/
-    ...orderRoutes,     // từ features/orders/
-  ],
-);
-
-// lib/features/auth/presentation/auth_routes.dart ← Mỗi team tự quản lý
-final authRoutes = [
-  GoRoute(
-    path: '/login',
-    builder: (context, state) => const LoginScreen(),
-    routes: [
-      GoRoute(path: 'forgot-password', builder: (_, __) => const ForgotPasswordScreen()),
-    ],
-  ),
-  GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
-];
-```
-
-Tương tự cho DI registration:
-```dart
-// lib/core/di/injection.dart ← Chỉ gọi từng module init
-Future<void> configureDependencies() async {
-  await authModule.init();
-  await catalogModule.init();
-  await cartModule.init();
-  await ordersModule.init();
-}
-
-// lib/features/auth/di/auth_module.dart ← Squad Auth tự quản lý
-class AuthModule {
-  Future<void> init() async {
-    getIt
-      ..registerLazySingleton<AuthRemoteDataSource>(AuthRemoteDataSourceImpl.new)
-      ..registerLazySingleton<AuthRepository>(
-        () => AuthRepositoryImpl(getIt()),
-      )
-      ..registerFactory<SignInUseCase>(() => SignInUseCase(getIt()));
-  }
-}
+       └─► [CÓ]
+            │
+            ▼
+       Có phải là hạ tầng nền tảng (I/O, Network, DI, Root Router, Base Error)?
+            │
+            ├─► [CÓ]   ──► Đặt bên trong: core/
+            │
+            └─► [KHÔNG] ──► Đặt bên trong: shared/
+                              ├── shared/widgets/  (UI dùng chung: AppButton, Avatar)
+                              └── shared/domain/   (Value Objects: Money, Location)
 ```
 
 ---
 
-## Phần 3 — Production Code Implementation
+### 2.3 — Kiến Trúc Định Tuyến Phi Tập Trung (Federated Routing)
+Vấn đề xung đột trên tệp định tuyến trung tâm (`app_router.dart`) xuất hiện khi hàng chục kỹ sư cùng khai báo đường dẫn tại một mảng `routes: [...]`.
 
-### 3.1. Cấu trúc đầy đủ một Feature: `cart`
+*Giải pháp kỹ thuật*: Mỗi feature tự quản lý danh sách tuyến đường của chính nó thông qua một danh sách bất biến `List<RouteBase>`. Tệp `app_router.dart` tại tầng `core/` chỉ đóng vai trò là một bộ lắp ráp (Assembler) cấp cao:
+
+```mermaid
+flowchart TD
+    subgraph CoreRouter ["core/router/app_router.dart (Assembler)"]
+        GR["GoRouter(\n  routes: [\n    ...authRoutes,\n    ...catalogRoutes,\n    ...cartRoutes,\n  ]\n)"]
+    end
+
+    subgraph FeatureAuth ["features/auth/presentation/auth_routes.dart"]
+        AR["final authRoutes = <RouteBase>[ ... ];"]
+    end
+
+    subgraph FeatureCatalog ["features/catalog/presentation/catalog_routes.dart"]
+        CR["final catalogRoutes = <RouteBase>[ ... ];"]
+    end
+
+    subgraph FeatureCart ["features/cart/presentation/cart_routes.dart"]
+        CART_R["final cartRoutes = <RouteBase>[ ... ];"]
+    end
+
+    AR --> GR
+    CR --> GR
+    CART_R --> GR
+
+    style CoreRouter fill:#f0f8ff,stroke:#0066cc
+```
+
+---
+
+### 2.4 — Bản Chất Của Barrel Files & Nguy Cơ Transitive Dependency Leak
+Trong Dart, tệp Barrel (`index.dart` hoặc `<feature_name>.dart`) dùng từ khóa `export` để công khai các API cho bên ngoài.
 
 ```dart
-// features/cart/domain/entities/cart_item.dart
-// Entity: Pure Dart, không import Flutter hay JSON package
+// lib/features/cart/cart.dart (Public API Barrel File)
+export 'domain/entities/cart_item.dart';
+export 'domain/repositories/cart_repository.dart';
+export 'presentation/cart_routes.dart';
+
+// TUYỆT ĐỐI KHÔNG export data/datasources hoặc data/models nội bộ!
+```
+
+*Nguy cơ rò rỉ phụ thuộc bắc cầu (Transitive Dependency Leak)*: Nếu tệp barrel vô tình `export` một DTO hoặc một thư viện thứ 3 (như `dio`), các module bên ngoài sẽ có thể truy xuất trực tiếp hạ tầng nội bộ của feature, phá vỡ tính đóng gói.
+
+---
+
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
+
+Xây dựng hoàn chỉnh phân đoạn tính năng Giỏ Hàng (`features/cart/`) và tích hợp vào hệ thống theo chuẩn Enterprise.
+
+### 3.1 — Bước 1: Thiết Lập Cấu Trúc Khung Thư Mục Chuẩn Hóa
+
+```text
+lib/
+├── core/                                   # Hạ tầng dùng chung toàn app
+│   ├── di/injection.dart                   # DI Assembler gốc
+│   ├── error/failures.dart                 # Base Failure types
+│   ├── network/dio_client.dart             # Cấu hình Dio, Interceptors
+│   └── router/app_router.dart              # GoRouter Assembler gốc
+│
+├── shared/                                 # Thành phần dùng chung ≥ 2 features
+│   ├── domain/entities/money.dart          # Value Object tiền tệ
+│   └── widgets/app_loading_indicator.dart  # Custom UI component
+│
+└── features/
+    └── cart/                               # Feature Slice Giỏ Hàng
+        ├── cart.dart                       # Public API Barrel file
+        ├── data/
+        │   ├── datasources/
+        │   │   ├── cart_local_datasource.dart
+        │   │   └── cart_remote_datasource.dart
+        │   ├── models/cart_item_dto.dart
+        │   └── repositories/cart_repository_impl.dart
+        ├── domain/
+        │   ├── entities/cart_item.dart
+        │   ├── repositories/cart_repository.dart
+        │   └── usecases/get_cart_items_usecase.dart
+        └── presentation/
+            ├── blocs/cart_bloc.dart
+            ├── screens/cart_screen.dart
+            └── cart_routes.dart            # Federated Routes
+```
+
+---
+
+### 3.2 — Bước 2: Triển Khai Domain Layer Thuần Túy Cho Feature Cart
+
+```dart
+// lib/features/cart/domain/entities/cart_item.dart
+
+import 'package:flutter/foundation.dart';
+
+@immutable
 final class CartItem {
+  final String productId;
+  final String productName;
+  final int unitPriceCents;
+  final int quantity;
+  final String? thumbnailUri;
+
   const CartItem({
     required this.productId,
-    required this.name,
-    required this.price,
+    required this.productName,
+    required this.unitPriceCents,
     required this.quantity,
-    this.imageUrl,
-  });
+    this.thumbnailUri,
+  }) : assert(quantity > 0, 'Số lượng sản phẩm trong giỏ phải lớn hơn 0.');
 
-  final String productId;
-  final String name;
-  final double price;
-  final int quantity;
-  final String? imageUrl;
-
-  // Pure business logic — không có JSON, không có copyWith từ freezed
-  double get subtotal => price * quantity;
+  // Logic nghiệp vụ thuần túy
+  int get subtotalCents => unitPriceCents * quantity;
 
   CartItem copyWith({
     String? productId,
-    String? name,
-    double? price,
+    String? productName,
+    int? unitPriceCents,
     int? quantity,
-    String? imageUrl,
+    String? thumbnailUri,
   }) {
     return CartItem(
       productId: productId ?? this.productId,
-      name: name ?? this.name,
-      price: price ?? this.price,
+      productName: productName ?? this.productName,
+      unitPriceCents: unitPriceCents ?? this.unitPriceCents,
       quantity: quantity ?? this.quantity,
-      imageUrl: imageUrl ?? this.imageUrl,
+      thumbnailUri: thumbnailUri ?? this.thumbnailUri,
     );
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is CartItem && other.productId == productId;
+      other is CartItem &&
+          runtimeType == other.runtimeType &&
+          productId == other.productId &&
+          quantity == other.quantity;
 
   @override
-  int get hashCode => productId.hashCode;
+  int get hashCode => Object.hash(productId, quantity);
 }
 ```
 
 ```dart
-// features/cart/domain/repositories/cart_repository.dart
-// Interface thuần — Domain KHÔNG biết implementation ở đâu
+// lib/features/cart/domain/repositories/cart_repository.dart
+
+import 'dart:async';
+import '../entities/cart_item.dart';
+
 abstract interface class CartRepository {
   Future<List<CartItem>> getCartItems();
   Future<void> addItem(CartItem item);
   Future<void> removeItem(String productId);
-  Future<void> updateQuantity(String productId, int quantity);
-  Future<void> clearCart();
-  Stream<List<CartItem>> watchCartItems(); // Real-time stream
+  Stream<List<CartItem>> watchCartItems();
 }
 ```
 
+---
+
+### 3.3 — Bước 3: Triển Khai Data Layer Với Chiến Lược Cache-First
+
 ```dart
-// features/cart/data/models/cart_item_dto.dart
-// DTO: Biết về JSON, biết về Hive/Drift — chỉ có ở Data layer
-import 'package:json_annotation/json_annotation.dart';
+// lib/features/cart/data/models/cart_item_dto.dart
 
-part 'cart_item_dto.g.dart';
+import '../../domain/entities/cart_item.dart';
 
-@JsonSerializable()
-final class CartItemDto {
+class CartItemDto {
+  final String productId;
+  final String name;
+  final int price;
+  final int quantity;
+  final String? image;
+
   const CartItemDto({
     required this.productId,
     required this.name,
     required this.price,
     required this.quantity,
-    this.imageUrl,
+    this.image,
   });
 
-  @JsonKey(name: 'product_id')
-  final String productId;
-  final String name;
-  final double price;
-  final int quantity;
-  @JsonKey(name: 'image_url')
-  final String? imageUrl;
+  factory CartItemDto.fromJson(Map<String, dynamic> json) {
+    return CartItemDto(
+      productId: json['product_id'] as String,
+      name: json['name'] as String? ?? '',
+      price: json['price_cents'] as int? ?? 0,
+      quantity: json['qty'] as int? ?? 1,
+      image: json['image_url'] as String?,
+    );
+  }
 
-  factory CartItemDto.fromJson(Map<String, dynamic> json) =>
-      _$CartItemDtoFromJson(json);
+  Map<String, dynamic> toJson() => {
+    'product_id': productId,
+    'name': name,
+    'price_cents': price,
+    'qty': quantity,
+    'image_url': image,
+  };
 
-  Map<String, dynamic> toJson() => _$CartItemDtoToJson(this);
-
-  // Mapping sang Entity — chỉ có ở tầng Data
   CartItem toEntity() => CartItem(
-        productId: productId,
-        name: name,
-        price: price,
-        quantity: quantity,
-        imageUrl: imageUrl,
-      );
-
-  factory CartItemDto.fromEntity(CartItem entity) => CartItemDto(
-        productId: entity.productId,
-        name: entity.name,
-        price: entity.price,
-        quantity: entity.quantity,
-        imageUrl: entity.imageUrl,
-      );
+    productId: productId,
+    productName: name,
+    unitPriceCents: price,
+    quantity: quantity,
+    thumbnailUri: image,
+  );
 }
 ```
 
 ```dart
-// features/cart/data/repositories/cart_repository_impl.dart
-import 'package:injectable/injectable.dart';
+// lib/features/cart/data/repositories/cart_repository_impl.dart
 
-@LazySingleton(as: CartRepository)
+import 'dart:async';
+import '../../domain/entities/cart_item.dart';
+import '../../domain/repositories/cart_repository.dart';
+import '../models/cart_item_dto.dart';
+
+abstract interface class CartRemoteDataSource {
+  Future<List<CartItemDto>> fetchRemoteCart();
+  Future<void> syncRemoteItem(CartItemDto item);
+}
+
+abstract interface class CartLocalDataSource {
+  Future<List<CartItemDto>> getCachedCart();
+  Future<void> saveCart(List<CartItemDto> items);
+  Stream<List<CartItemDto>> watchCart();
+}
+
 final class CartRepositoryImpl implements CartRepository {
-  const CartRepositoryImpl({
-    required CartRemoteDataSource remoteDataSource,
-    required CartLocalDataSource localDataSource,
-    required NetworkInfo networkInfo,
-  })  : _remote = remoteDataSource,
-        _local = localDataSource,
-        _networkInfo = networkInfo;
-
   final CartRemoteDataSource _remote;
   final CartLocalDataSource _local;
-  final NetworkInfo _networkInfo;
+
+  const CartRepositoryImpl({
+    required CartRemoteDataSource remote,
+    required CartLocalDataSource local,
+  })  : _remote = remote,
+        _local = local;
 
   @override
   Future<List<CartItem>> getCartItems() async {
-    // Cache-first strategy: đọc local trước, sync remote khi online
-    final localItems = await _local.getCachedItems();
-    if (localItems.isNotEmpty) {
-      unawaited(_syncIfOnline()); // Non-blocking background sync
-      return localItems.map((dto) => dto.toEntity()).toList();
+    // 1. Cache-First: Đọc dữ liệu từ local storage ngay lập tức
+    final cached = await _local.getCachedCart();
+    if (cached.isNotEmpty) {
+      // 2. Kích hoạt đồng bộ hóa ngầm trong background (không block UI)
+      unawaited(_syncFromNetwork());
+      return cached.map((dto) => dto.toEntity()).toList();
     }
 
-    if (!await _networkInfo.isConnected) {
-      return [];
-    }
-
-    final remoteItems = await _remote.fetchCartItems();
-    await _local.cacheItems(remoteItems);
-    return remoteItems.map((dto) => dto.toEntity()).toList();
+    // Nếu cache rỗng, buộc phải chờ mạng
+    return _syncFromNetwork();
   }
 
-  Future<void> _syncIfOnline() async {
-    if (!await _networkInfo.isConnected) return;
+  Future<List<CartItem>> _syncFromNetwork() async {
     try {
-      final remoteItems = await _remote.fetchCartItems();
-      await _local.cacheItems(remoteItems);
+      final remoteDtos = await _remote.fetchRemoteCart();
+      await _local.saveCart(remoteDtos);
+      return remoteDtos.map((dto) => dto.toEntity()).toList();
     } catch (_) {
-      // Silent sync failure — user đã có data từ cache
+      // Nếu mạng lỗi nhưng đã có cache, bảo toàn luồng chạy
+      final fallback = await _local.getCachedCart();
+      return fallback.map((dto) => dto.toEntity()).toList();
     }
+  }
+
+  @override
+  Future<void> addItem(CartItem item) async {
+    // Thao tác ghi dữ liệu...
+  }
+
+  @override
+  Future<void> removeItem(String productId) async {
+    // Thao tác xóa dữ liệu...
   }
 
   @override
   Stream<List<CartItem>> watchCartItems() {
-    return _local.watchCachedItems().map(
-          (dtos) => dtos.map((dto) => dto.toEntity()).toList(),
-        );
+    return _local.watchCart().map(
+      (dtos) => dtos.map((dto) => dto.toEntity()).toList(),
+    );
   }
-
-  // ... các method khác
 }
 ```
 
-### 3.2. Federated Routes hoàn chỉnh
+---
+
+### 3.4 — Bước 4: Triển Khai Federated Routes Phi Tập Trung
 
 ```dart
 // lib/features/cart/presentation/cart_routes.dart
-import 'package:go_router/go_router.dart';
 
-// Tên route là const để tránh typo — dùng trong navigate
-abstract final class CartRoutes {
-  static const cart = '/cart';
-  static const checkout = 'checkout';       // Relative route
-  static const orderSuccess = 'success';    // Relative route
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'screens/cart_screen.dart';
+
+abstract final class CartRoutePaths {
+  static const cartRoot = '/cart';
+  static const checkoutSubRoute = 'checkout';
 }
 
 final cartRoutes = <RouteBase>[
   GoRoute(
-    path: CartRoutes.cart,
-    name: CartRoutes.cart,
-    pageBuilder: (context, state) => const NoTransitionPage(
+    path: CartRoutePaths.cartRoot,
+    name: 'cart_screen',
+    pageBuilder: (context, state) => const MaterialPage(
       child: CartScreen(),
     ),
     routes: [
       GoRoute(
-        path: CartRoutes.checkout,
-        name: CartRoutes.checkout,
-        builder: (context, state) {
-          // Type-safe param extraction
-          final extras = state.extra as CheckoutArgs?;
-          return CheckoutScreen(initialAddress: extras?.savedAddress);
-        },
-        routes: [
-          GoRoute(
-            path: CartRoutes.orderSuccess,
-            name: CartRoutes.orderSuccess,
-            builder: (context, state) {
-              final orderId = state.pathParameters['orderId'] ?? '';
-              return OrderSuccessScreen(orderId: orderId);
-            },
-          ),
-        ],
+        path: CartRoutePaths.checkoutSubRoute,
+        name: 'cart_checkout',
+        builder: (context, state) => const Scaffold(
+          body: Center(child: Text('Checkout Sub-screen')),
+        ),
       ),
     ],
   ),
 ];
 ```
 
----
+```dart
+// lib/core/router/app_router.dart (Assembler)
 
-## Phần 4 — Profiling & Performance Trade-offs
+import 'package:go_router/go_router.dart';
+import '../../features/cart/presentation/cart_routes.dart';
 
-### Kết quả đo lường thực nghiệm: Merge Conflict tần suất
-
-| Chiến lược | Sprint 1 Conflict | Sprint 6 Conflict | Onboard time | File tìm khi add feature |
-|:---|:---:|:---:|:---:|:---:|
-| **Layer-First** (15 dev) | 12 | 48 | 3-4 ngày | 8-12 files |
-| **Feature-First** (15 dev) | 3 | 4 | 4-6 giờ | 2-3 files |
-
-**Lưu ý phương pháp đo**: Đây là số liệu quan sát từ 2 dự án thực tế tương tự quy mô. Sprint conflict = số lần git merge fail cần manual resolution.
-
-### Chi phí chuyển đổi (Migration Cost)
-
-Nếu dự án đang dùng Layer-First và muốn migrate:
-
-| Quy mô project | Ước tính thời gian migrate | Rủi ro |
-|:---|:---:|:---:|
-| <20 screens | 1-2 ngày | Thấp |
-| 20-60 screens | 1-2 sprint | Trung bình |
-| >60 screens | 4-6 sprint, migrate dần feature-by-feature | Cao — cần "strangler fig pattern" |
-
-**Strangler Fig Pattern cho migration an toàn:**
-```
-1. Tạo thư mục features/ song song với cấu trúc cũ
-2. Mỗi sprint: migrate 1-2 feature hoàn chỉnh vào features/
-3. Giữ nguyên code cũ cho đến khi feature mới hoạt động ổn định
-4. Xóa code cũ sau khi test E2E pass
-5. KHÔNG cố migrate toàn bộ trong 1 sprint
+final appRouter = GoRouter(
+  initialLocation: '/cart',
+  routes: [
+    // Lắp ráp routes từ các feature độc lập — Không gây merge conflict
+    ...cartRoutes,
+  ],
+);
 ```
 
 ---
 
-## Phần 5 — Production Checklist
+### 3.5 — Bước 5: Thiết Lập Bộ Kiểm Tra Ranh Giới Phụ Thuộc Tự Động (Architecture Boundary Test)
 
-### ❌ Anti-patterns cần từ chối trong Code Review
+Để không phải phụ thuộc vào việc code review thủ công dễ bị bỏ sót, ta viết một bài kiểm thử kiến trúc (Architecture Test) tự động duyệt mã nguồn và chặn đứng việc vi phạm ranh giới tại CI/CD:
 
+```dart
+// test/architecture/dependency_boundary_test.dart
+
+import 'dart:io';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('Quy tắc kiến trúc: Tuyệt đối không import chéo giữa các feature modules', () {
+    final featuresDir = Directory('lib/features');
+    if (!featuresDir.existsSync()) return;
+
+    final featureSubDirs = featuresDir
+        .listSync()
+        .whereType<Directory>()
+        .map((d) => d.path.split(Platform.pathSeparator).last)
+        .toList();
+
+    final violations = <String>[];
+
+    for (final featureName in featureSubDirs) {
+      final currentFeatureDir = Directory('lib/features/$featureName');
+      final dartFiles = currentFeatureDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'));
+
+      for (final file in dartFiles) {
+        final lines = file.readAsLinesSync();
+        for (int i = 0; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (!line.startsWith('import ')) continue;
+
+          for (final otherFeature in featureSubDirs) {
+            if (otherFeature == featureName) continue;
+
+            // Kiểm tra import chéo: import '.../features/otherFeature/...'
+            if (line.contains('/features/$otherFeature/')) {
+              violations.add(
+                '${file.path}:${i + 1} vi phạm ranh giới kiến trúc: '
+                'Feature "$featureName" không được phép import trực tiếp từ "$otherFeature"!\n'
+                '  -> Dòng vi phạm: $line',
+              );
+            }
+          }
+        }
+      }
+    }
+
+    expect(
+      violations,
+      isEmpty,
+      reason: 'Phát hiện các tệp tin vi phạm quy tắc Cross-Feature Import:\n'
+          '${violations.join('\n')}\n'
+          'Giải pháp: Chuyển dữ liệu/widget dùng chung vào shared/ hoặc sử dụng Domain Events.',
+    );
+  });
+}
 ```
-[ ] ❌ features/auth/ import từ features/cart/
-    ✅ Tạo shared/ entity/widget nếu 2 feature cùng cần
-    Lý do: Tạo coupling ngầm, feature A thay đổi → feature B bị vỡ
 
-[ ] ❌ Đặt tất cả route trong 1 file router.dart (hot file)
-    ✅ Mỗi feature tự quản lý routes trong feature_routes.dart
-    Lý do: >5 developers cùng thêm route → conflict mỗi sprint
+---
 
-[ ] ❌ Widget từ features/catalog/widgets/product_card.dart
-    được import vào features/search/
-    ✅ Di chuyển ProductCard vào shared/widgets/
-    Lý do: shared/ mới là nơi chứa code dùng bởi ≥2 features
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
-[ ] ❌ Đặt business logic (price calculation, discount) trong Widget
-    ✅ Luôn đặt logic trong UseCase hoặc Entity method
-    Lý do: Không thể unit test khi logic nằm trong Widget
+### 4.1 — ❌ Anti-pattern 1: Phụ Thuộc Ngang Giữa Các Features (Cross-Feature Imports)
 
-[ ] ❌ core/ import từ shared/ hoặc features/
-    ✅ core/ chỉ phụ thuộc Dart/Flutter SDK và package cơ bản
-    Lý do: core/ bị vòng import → circular dependency crash compile
+#### Mô tả lỗi:
+Màn hình xác nhận đơn hàng `features/checkout/` import trực tiếp Controller hoặc Entity nội bộ của `features/cart/`:
 
-[ ] ❌ Đặt DTO (class có fromJson/toJson) trong domain/entities/
-    ✅ Entity trong domain/, DTO trong data/models/
-    Lý do: Domain layer sẽ bị phụ thuộc vào json_serializable
-
-[ ] ❌ Tên màn hình: HomeScreen, ProfileScreen (quá chung)
-    ✅ HomeScreen, UserProfileScreen (prefix rõ feature)
-    Lý do: Khi search Cmd+P "Screen" sẽ tìm thấy 120 kết quả vô nghĩa
-
-[ ] ❌ shared/widgets/ chứa widget có business logic
-    ✅ shared/widgets/ chỉ chứa pure UI components (Atomic Design level)
-    Lý do: Business logic trong shared = shared tech debt
+```dart
+// ❌ LỖI KIẾN TRÚC NGHIÊM TRỌNG
+import 'package:app/features/cart/presentation/blocs/cart_bloc.dart';
 ```
 
-### Quy tắc đặt tên thư mục bắt buộc
+#### Phân tích cơ chế gây lỗi:
+- Tạo ra ghép nối ngầm (Implicit Coupling). Khi squad phụ trách Cart refactor `cart_bloc.dart`, mã nguồn của Checkout bị lỗi biên dịch mà không được báo trước.
+- Rất dễ dẫn đến phụ thuộc vòng (Circular Dependency): Cart import Checkout để kiểm tra hạn mức $\to$ Checkout import Cart để lấy danh sách món đồ. Trình biên dịch Dart sẽ báo lỗi hoặc gây crash runtime.
 
+#### Biện pháp phòng chống:
+1. **Chia sẻ qua Shared Domain**: Nếu hai feature cùng cần một Value Object (như `CartItemSummary`), di chuyển nó vào `shared/domain/`.
+2. **Sử dụng Domain Events**: Feature Checkout phát ra sự kiện `OrderPlacedEvent(cartId)`. Feature Cart lắng nghe sự kiện này tại tầng điều phối trung tâm để tự xóa giỏ hàng mà không cần import trực tiếp lẫn nhau.
+
+---
+
+### 4.2 — ❌ Anti-pattern 2: Biến `shared/` Thành "Bãi Rác Dùng Chung" (Shared Junk Drawer)
+
+#### Mô tả lỗi:
+Bất kỳ khi nào một kỹ sư lười suy nghĩ về ranh giới ngữ cảnh, họ liền đặt tệp tin đó vào `shared/`. Sau vài sprint, `shared/` chứa hàng trăm widgets và helpers vô chủ, không ai dám refactor vì sợ làm vỡ tính năng của người khác.
+
+#### Biện pháp phòng chống (Quy Tắc Rule of Three):
+- Chỉ đưa một thành phần vào `shared/` khi nó **thực sự được sử dụng bởi ít nhất 3 vị trí độc lập** và mang tính chất generic (không chứa business logic đặc thù của riêng một màn hình).
+- Thường xuyên rà soát (Audit) thư mục `shared/`: Nếu một widget chỉ được gọi bởi duy nhất 1 feature, bắt buộc phải di chuyển nó về lại thư mục nội bộ của feature đó.
+
+---
+
+### 4.3 — ❌ Anti-pattern 3: Đặt DTO (Class Có fromJson/toJson) Trong Thư Mục Domain
+
+#### Mô tả lỗi:
+Khai báo phương thức parse JSON hoặc phụ thuộc vào annotation `json_serializable` ngay bên trong Domain Entity:
+
+```dart
+// ❌ LỖI: Domain Entity chứa json_annotation
+import 'package:json_annotation/json_annotation.dart';
+
+@JsonSerializable()
+class UserProfile { ... }
 ```
-features/
-  ├── <feature_name>/          # snake_case, danh từ số ít
-  │   ├── data/
-  │   │   ├── datasources/     # *_datasource.dart
-  │   │   ├── models/          # *_dto.dart (KHÔNG dùng _model)
-  │   │   └── repositories/    # *_repository_impl.dart
-  │   ├── domain/
-  │   │   ├── entities/        # *entity.dart (chỉ Dart thuần)
-  │   │   ├── repositories/    # *_repository.dart (abstract interface)
-  │   │   └── usecases/        # *_usecase.dart (1 class = 1 use case)
-  │   └── presentation/
-  │       ├── blocs/            # *_bloc.dart + *_event.dart + *_state.dart
-  │       ├── screens/          # *_screen.dart
-  │       └── widgets/          # *_widget.dart (feature-specific)
-```
+
+#### Biện pháp phòng chống:
+Domain Layer chỉ chứa Pure Dart. Mọi logic giải tuần tự hóa bắt buộc phải nằm trong Data Layer DTO (`*_dto.dart`).
+
+---
+
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Thử Thách Thẩm Định
+
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
+
+#### Câu hỏi 1: Khi nào nên chuyển từ Feature-First trong Single Repo sang Kiến Trúc Đa Gói (Monorepo với Melos)?
+*Phân tích kỹ thuật:*
+- **Single Repo Feature-First**: Phù hợp cho đội ngũ 5–15 kỹ sư. Kiểm soát ranh giới bằng kỷ luật quy ước thư mục (Folder Conventions) và linting rules.
+- **Monorepo (Melos / Dart Packages)**: Cần thiết khi quy mô vượt trên 20 kỹ sư hoặc khi cần chia sẻ các feature modules giữa nhiều ứng dụng khác nhau (ví dụ: Customer App và Driver App dùng chung `package:feature_auth`). Ở cấp độ này, mỗi feature là một Dart package độc lập với `pubspec.yaml` riêng, biến ranh giới phụ thuộc thành **rào cản vật lý tại compile-time**.
+
+---
+
+#### Câu hỏi 2: Tại sao chiến lược Cache-First với `unawaited(sync())` lại quan trọng đối với trải nghiệm người dùng trong Enterprise App?
+*Phân tích kỹ thuật:*
+Thời gian phản hồi khung hình của thiết bị di động cần đạt dưới 16ms (60fps). Việc chờ đợi mạng (Network Latency: 200–1000ms) sẽ khiến màn hình hiển thị thanh tiến trình tải xoay tròn, tạo cảm giác gián đoạn. Bằng cách đọc ngay dữ liệu từ Local Storage (thời gian truy xuất <5ms), màn hình hiển thị tức thì cho người dùng, sau đó tiến hành gọi API ngầm để làm mới dữ liệu và cập nhật giao diện mượt mà.
+
+---
+
+### 5.2 — Bài Tập Thực Hành: Thiết Kế Migration Theo Strangler Fig Pattern
+
+**Bối cảnh**: Hệ thống hiện tại có 80 màn hình tổ chức theo Layer-First (`lib/controllers`, `lib/views`). Nhóm không thể dừng phát triển tính năng mới trong 2 tháng để đập đi xây lại.
+
+**Nhiệm vụ**:
+1. Thiết lập thư mục `features/` song song với cấu trúc cũ.
+2. Chọn module `Profile` để áp dụng Strangler Fig Pattern.
+3. Trình bày chi tiết 4 giai đoạn chuyển đổi mã nguồn sao cho ứng dụng vẫn có thể build và release production vào cuối mỗi sprint mà không bị gián đoạn.

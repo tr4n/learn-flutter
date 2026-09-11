@@ -8,19 +8,24 @@
 
 ---
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
 
-### 1.1 — Sự Chuyển Dịch Kiến Trúc Từ StateNotifier Sang Notifier / AsyncNotifier
+### 1.1 — Nó Là Gì? Notifier, AsyncNotifier & Kiểu Đa Hình AsyncValue
+`Notifier` và `AsyncNotifier` là hai lớp quản lý trạng thái nghiệp vụ trung tâm trong hệ sinh thái Riverpod 2.0+, tương ứng với trạng thái đồng bộ và trạng thái bất đồng bộ. Khác với các lớp controller thông thường, `Notifier` và `AsyncNotifier` tích hợp trực tiếp vòng đời với đồ thị phụ thuộc DAG của `ProviderContainer` thông qua phương thức khởi tạo khai báo `build()`.
 
-Trong phiên bản Riverpod 1.x, lớp `StateNotifier` (được kế thừa từ package bên ngoài `state_notifier`) là công cụ chính để quản lý trạng thái phức tạp. Tuy nhiên, kiến trúc này bộc lộ nhiều điểm hạn chế:
-1. **Khởi tạo trạng thái cứng nhắc**: Phải truyền trạng thái khởi tạo thông qua hàm dựng `super(initialState)`, không thể gọi các tác vụ bất đồng bộ hoặc đọc các provider khác một cách tự nhiên trong lúc khởi tạo.
-2. **Xử lý tác vụ bất đồng bộ thủ công**: Lập trình viên phải tự quản lý các cờ phân mảnh như `bool isLoading`, `String? errorMessage`, và `T? data`.
-3. **Không tích hợp sâu với cơ chế phản xạ của Riverpod**: Khó tự động kích hoạt tính toán lại khi các phụ thuộc thay đổi.
+Đi kèm với `AsyncNotifier` là lớp trừu tượng đa hình **`AsyncValue<T>`** (được triển khai dưới dạng `sealed class` trong Dart). `AsyncValue<T>` đóng gói 3 trạng thái bất biến cơ bản của một luồng xử lý bất đồng bộ:
+- `AsyncData<T>`: Chứa giá trị kết quả sau khi tác vụ hoàn thành thành công.
+- `AsyncLoading<T>`: Đại diện cho trạng thái đang thực thi (hỗ trợ mang theo dữ liệu cũ của phiên trước đó).
+- `AsyncError<T>`: Đại diện cho trạng thái thất bại, chứa đối tượng lỗi `error` và vết ngăn xếp `stackTrace`.
 
-Từ Riverpod 2.0+, hệ thống giới thiệu cặp đôi kiến trúc thế hệ mới: **`Notifier`** (cho trạng thái đồng bộ) và **`AsyncNotifier`** (cho trạng thái bất đồng bộ):
-- Khởi tạo trạng thái thông qua phương thức khai báo **`build()`**.
-- Cho phép gọi `ref.watch()` trực tiếp bên trong `build()`. Khi bất kỳ provider phụ thuộc nào thay đổi, Notifier sẽ tự động chạy lại `build()` để tái tạo trạng thái mới.
-- Tích hợp sẵn mô hình lớp đa hình tiêu chuẩn **`AsyncValue<T>`** để bao bọc mọi tác vụ bất đồng bộ.
+### 1.2 — Giải Quyết Bài Toán Gì? Sự Bất Cập Của Cờ Trạng Thái Thủ Công & StateNotifier Cũ
+Trước Riverpod 2.0, việc quản lý trạng thái bất đồng bộ trong Flutter đối mặt với các vấn đề kỹ thuật nghiêm trọng:
+1. **Phân mảnh biến cờ thủ công (State Flag Fragmentation)**: Lập trình viên phải tự khai báo và đồng bộ thủ công các biến trạng thái rời rạc (`bool isLoading`, `String? errorMessage`, `T? data`). Điều này thường dẫn đến các trạng thái nghịch lý không hợp lệ (Invalid States), ví dụ: `isLoading == true` nhưng `errorMessage != null` đồng thời `data != null`.
+2. **Khởi tạo cứng nhắc trong `StateNotifier`**: Hàm dựng của `StateNotifier` bắt buộc phải truyền giá trị khởi tạo `super(initialState)` đồng bộ, khiến việc gọi API bất đồng bộ ngay lúc khởi tạo buộc phải lách luật bằng các hàm `init()` gọi ngoài, dễ gây ra lỗi Race Condition.
+3. **Mất dấu vết ngăn xếp ngoại lệ (StackTrace Loss)**: Việc tự `try/catch` thủ công thường vô tình làm mất `StackTrace`, gây khó khăn cho việc gỡ lỗi trong hệ thống giám sát lỗi (như Sentry hay Firebase Crashlytics).
+4. **Hiện tượng chớp nháy giao diện (UI Flickering)**: Khi làm mới dữ liệu (Pull-to-refresh), nếu xóa dữ liệu cũ để hiển thị thanh tiến trình tải (`CircularProgressIndicator`), màn hình sẽ bị trắng tạm thời, làm gián đoạn trải nghiệm người dùng.
+
+`AsyncNotifier` và `AsyncValue` giải quyết triệt để các vấn đề trên bằng cách hợp nhất toàn bộ trạng thái vào một máy trạng thái hữu hạn (Finite State Machine) kiểu hóa và cung cấp sẵn cơ chế giữ dữ liệu phiên trước (`skipLoadingOnReload: true`).
 
 ```
 Mô hình cũ (StateNotifier):
@@ -38,14 +43,15 @@ class MyNotifier extends AsyncNotifier<MyData> {
 }
 ```
 
-### 1.2 — Bản Chất Của Lớp Đa Hình `AsyncValue<T>`
+### 1.3 — Hệ Thống Các Trạng Thái Phân Cấp Trong `AsyncValue<T>`
 
-`AsyncValue<T>` là một `sealed class` đại diện cho kết quả của một tác vụ bất đồng bộ với 3 trạng thái phân cấp rõ rệt:
-- **`AsyncData<T>`**: Tác vụ đã hoàn tất thành công, mang theo đối tượng dữ liệu `value`.
-- **`AsyncLoading<T>`**: Tác vụ đang được thực thi trong nền. Điểm đặc biệt của Riverpod 2 là `AsyncLoading` vẫn có thể mang theo giá trị dữ liệu cũ (`hasValue == true`) trong quá trình làm mới (Refreshing/Reloading).
-- **`AsyncError<T>`**: Tác vụ thất bại, chứa đối tượng lỗi `error` và vết ngăn xếp `stackTrace`.
+| Trạng Thái | Kiểu Lớp | Ý Nghĩa Kỹ Thuật | Dữ Liệu Mang Theo |
+| :--- | :--- | :--- | :--- |
+| **Thành công** | `AsyncData<T>` | Tác vụ hoàn tất, không có lỗi. | `value: T` |
+| **Đang tải** | `AsyncLoading<T>` | Đang chờ `Future` giải quyết. | `hasValue` (có thể giữ data cũ khi reload) |
+| **Thất bại** | `AsyncError<T>` | `Future` ném ra exception. | `error: Object`, `stackTrace: StackTrace` |
 
-### 1.3 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
 - Nắm vững vòng đời và cơ chế tái thực thi của phương thức `build()` trong `AsyncNotifier`.
 - Phân biệt các cờ logic chuyển tiếp trong `AsyncValue`: `hasValue`, `isLoading`, `isRefreshing`, và `isReloading`.
 - Áp dụng phương thức an toàn `AsyncValue.guard()` để tự động bắt lỗi và ánh xạ trạng thái.
@@ -54,7 +60,7 @@ class MyNotifier extends AsyncNotifier<MyData> {
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
 
 ### 2.1 — Vòng Đời Của `AsyncNotifier` Và Cơ Chế Chuyển Đổi Trạng Thái
 
@@ -117,7 +123,7 @@ state = await AsyncValue.guard(() => repository.fetchData());
 
 ---
 
-## Phần 3 — Triển Khai Kỹ Thuật (Implementation Details)
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
 
 ### 3.1 — Xây Dựng Entity Và Data Service
 
@@ -445,7 +451,7 @@ class ProductCatalogScreen extends ConsumerWidget {
 
 ---
 
-## Phần 4 — Lỗi Kiến Trúc Thường Gặp & Biện Pháp Khắc Phục
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
 ### 4.1 — Truy Cập Trực Tiếp `state.requireValue` Mà Không Kiểm Tra Tính Khả Dụng
 

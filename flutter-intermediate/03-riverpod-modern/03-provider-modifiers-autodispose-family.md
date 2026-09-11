@@ -8,17 +8,13 @@
 
 ---
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
 
-### 1.1 — Bản Chất Của Bộ Điều Chỉnh (Modifiers) Trong Riverpod
-
-Mặc định trong Riverpod, một Provider sau khi được khởi tạo lần đầu tiên sẽ tồn tại vĩnh viễn trên bộ nhớ heap cho đến khi `ProviderContainer` hoặc `ProviderScope` bị giải phóng hoàn toàn. Đối với các dịch vụ cấp cao (như kết nối mạng `ApiClient`, xác thực người dùng `AuthNotifier`), đây là hành vi mong muốn. Tuy nhiên, đối với các màn hình thứ cấp (chi tiết sản phẩm, lịch sử giao dịch, bộ lọc tạm thời), việc giữ lại trạng thái sau khi người dùng đã đóng màn hình sẽ dẫn đến hai nguy cơ kiến trúc nghiêm trọng:
-1. **Lãng phí bộ nhớ (Memory Bloat)**: Các đối tượng dữ liệu lớn không còn sử dụng vẫn bị neo giữ trong RAM.
-2. **Dữ liệu lỗi thời (Stale State)**: Khi người dùng mở lại cùng một màn hình với tham số khác, giao diện có nguy cơ hiển thị dữ liệu cũ trước khi nạp dữ liệu mới.
-
-Riverpod cung cấp hai bộ điều chỉnh cốt lõi nhằm giải quyết triệt để các thách thức này:
-- **`autoDispose`**: Tự động giải phóng trạng thái nội bộ của Provider ngay khi không còn bất kỳ widget hoặc provider nào theo dõi nó.
-- **`family`**: Tham số hóa Provider, cho phép truyền đối số từ tầng giao diện vào logic nạp dữ liệu (ví dụ: truyền `productId` để lấy thông tin chi tiết của từng sản phẩm riêng biệt).
+### 1.1 — Nó Là Gì? Bộ Điều Chỉnh autoDispose, family & Provider Composition
+Trong Riverpod, **Modifiers (Bộ điều chỉnh)** là các hàm bao (decorators) được gắn kèm vào định nghĩa của Provider nhằm can thiệp và biến đổi hành vi mặc định về vòng đời và tham số hóa dữ liệu:
+- **`autoDispose`**: Cơ chế dọn dẹp bộ nhớ tự động, giải phóng trạng thái của Provider ngay khi không còn bất kỳ widget hay provider nào theo dõi nó.
+- **`family`**: Cơ chế tham số hóa Provider, cho phép truyền các đối số động (Dynamic Arguments) từ tầng giao diện vào phương thức tạo lập trạng thái.
+- **`Provider Composition`**: Mẫu thiết kế liên kết các Provider đơn nhiệm thành một đường ống xử lý phụ thuộc nhiều tầng (Multi-tier Dependency Pipeline) thông qua đồ thị DAG.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -30,11 +26,23 @@ Riverpod cung cấp hai bộ điều chỉnh cốt lõi nhằm giải quyết tr
 └────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 — Tổng Hợp Provider (Provider Composition)
+### 1.2 — Giải Quyết Bài Toán Gì? Tràn Bộ Nhớ, Dữ Liệu Lỗi Thời & Tham Số Hóa Truy Vấn
+Mặc định trong Riverpod, một Provider sau khi khởi tạo sẽ tồn tại vĩnh viễn trên Heap RAM của `ProviderContainer` cho đến khi toàn bộ ứng dụng bị tắt. Điều này gây ra 3 vấn đề kỹ thuật lớn:
+1. **Lãng phí tài nguyên bộ nhớ (Memory Bloat)**: Khi người dùng lướt qua 50 sản phẩm khác nhau, nếu mỗi màn hình chi tiết đều giữ nguyên trạng thái trên RAM, ứng dụng sẽ nhanh chóng bị hệ điều hành tắt ngầm do vượt quá hạn ngạch bộ nhớ (Out of Memory - OOM).
+2. **Trạng thái lỗi thời (Stale State)**: Khi mở lại cùng một màn hình với tham số khác, nếu không có cơ chế hủy trạng thái cũ, người dùng có thể thấy dữ liệu của sản phẩm trước đó trong một khoảnh khắc trước khi dữ liệu mới được tải xong.
+3. **Phân mảnh truy vấn có tham số**: Nếu không có `family`, lập trình viên phải tự viết các logic lưu trữ `Map<String, Data>` thủ công bên trong StateNotifier/Cubit, gây phình to mã nguồn và dễ xảy ra lỗi đồng bộ.
+4. **Tải lại mạng không cần thiết (Cache Inefficiency)**: Giải phóng tức thời khi rời màn hình cũng gây lãng phí băng thông nếu người dùng chỉ chuyển đổi qua lại giữa các tab trong vài giây. `KeepAliveLink` giải quyết bằng cơ chế bộ đệm có thời hạn (Time-To-Live Cache).
 
-Provider Composition là kỹ thuật liên kết nhiều provider nhỏ, chuyên trách thành một chuỗi xử lý phụ thuộc nhiều tầng (Multi-tier Dependency Pipeline). Nhờ đồ thị DAG, khi một provider ở tầng gốc thay đổi (ví dụ: từ khóa tìm kiếm), toàn bộ các provider tính toán phái sinh ở tầng dưới sẽ tự động được đánh dấu để tính toán lại mà không cần lập trình viên phải tự dispatch các sự kiện thủ công.
+### 1.3 — Bảng So Sánh Các Bộ Điều Chỉnh Vòng Đời
 
-### 1.3 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+| Bộ Điều Chỉnh | Thời Điểm Thu Hồi RAM | Kịch Bản Sử Dụng Chuẩn |
+| :--- | :--- | :--- |
+| **Mặc định (Không modifier)** | Khi `ProviderContainer` / `ProviderScope` bị hủy (thường là khi tắt ứng dụng). | Dịch vụ cấp cao: `ApiClient`, `AuthRepository`, `ThemeNotifier`. |
+| **`.autoDispose`** | Khi toàn bộ listener unmount và chu kỳ Microtask kế tiếp kết thúc. | Màn hình phụ, form nhập liệu tạm thời, bộ lọc tìm kiếm. |
+| **`.family`** | Phụ thuộc vào modifier đi kèm (`autoDispose` hoặc mặc định). | Chi tiết bài viết (`articleId`), thông tin đơn hàng (`orderId`). |
+| **`.autoDispose` + `keepAlive()`** | Tự hủy sau khi hết hạn bộ đệm thời gian (Time-To-Live). | Trang danh mục, feed tin tức, tab chuyển đổi thường xuyên. |
+
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
 - Nắm vững thuật toán đếm tham chiếu (Reference Counting) và chu trình dọn dẹp của `autoDispose`.
 - Cài đặt cơ chế lưu đệm thông minh có thời hạn (Time-based Smart Caching) với `KeepAliveLink`.
 - Hiểu rõ cơ chế bảng băm (HashMap) của `family` và các yêu cầu khắt khe về toán tử `operator ==`.
@@ -42,7 +50,7 @@ Provider Composition là kỹ thuật liên kết nhiều provider nhỏ, chuyê
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
 
 ### 2.1 — Thuật Toán Đếm Tham Chiếu (Reference Counting) Trong `autoDispose`
 
@@ -100,7 +108,7 @@ flowchart TD
 
 ---
 
-## Phần 3 — Triển Khai Kỹ Thuật (Implementation Details)
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
 
 ### 3.1 — Xây Dựng `AsyncNotifier` Kết Hợp `.autoDispose` Và `.family`
 
@@ -386,7 +394,7 @@ class ProductDetailScreen extends ConsumerWidget {
 
 ---
 
-## Phần 4 — Lỗi Kiến Trúc Thường Gặp & Biện Pháp Khắc Phục
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
 ### 4.1 — Truyền Tham Số Vào `family` Mà Không Cài Đặt `operator ==`
 

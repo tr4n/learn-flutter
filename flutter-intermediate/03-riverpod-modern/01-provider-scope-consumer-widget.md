@@ -8,19 +8,19 @@
 
 ---
 
-## Phần 1 — Khái Niệm & Mục Tiêu Bài Học
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
 
-### 1.1 — Bản Chất Kiến Trúc Của Riverpod So Với Provider Truyền Thống
+### 1.1 — Nó Là Gì? Định Vị Kiến Trúc Của Riverpod
+Riverpod là một hệ thống quản trị trạng thái phản ứng (Reactive State Management) và tiêm phụ thuộc (Dependency Injection) độc lập hoàn toàn với cây Widget của Flutter. Không giống như package `provider` truyền thống vốn là một lớp bọc quanh `InheritedWidget`, Riverpod quản lý trạng thái tại một vùng nhớ độc lập gọi là `ProviderContainer` và mô hình hóa các mối quan hệ phụ thuộc thành một Đồ thị có hướng không chu trình (Directed Acyclic Graph - DAG).
 
-Package `provider` ban đầu của Flutter được xây dựng hoàn toàn dựa trên nền tảng `InheritedWidget`. Mặc dù đơn giản và trực quan, kiến trúc này phụ thuộc chặt chẽ vào vị trí của widget trên cây giao diện (`BuildContext`), dẫn đến các hạn chế cố hữu:
-1. **Ngoại lệ thời gian chạy (`ProviderNotFoundException`)**: Nếu một widget cố gắng đọc dữ liệu từ một provider nằm ngoài phạm vi cây widget của nó (ví dụ: trong một route mới hoặc dialog), ứng dụng sẽ bị sập tại runtime.
-2. **Khó khăn trong việc kết hợp dữ liệu (Provider Combination)**: Việc một provider lắng nghe một provider khác phụ thuộc vào thứ tự lồng nhau của widget tree và phải dùng các cấu trúc phức tạp như `ProxyProvider`.
-3. **Không an toàn kiểu dữ liệu tại thời điểm biên dịch (Compile-time Safety)**: Việc tìm kiếm provider dựa trên `runtimeType`, dễ dẫn đến xung đột nếu có hai provider cùng kiểu dữ liệu.
+Các Provider trong Riverpod được định nghĩa dưới dạng các biến toàn cục bất biến (`top-level final`). Điều này không biến dữ liệu thành biến toàn cục có thể thay đổi tùy tiện (mutable global state), mà biến Provider thành một **định danh mô tả bất biến (immutable key)** dùng để tra cứu trạng thái bên trong container.
 
-`Riverpod` (viết đảo chữ từ `Provider`) được thiết kế nhằm giải phóng hoàn toàn việc quản lý trạng thái ra khỏi cây widget:
-- Các `Provider` được khai báo dưới dạng biến toàn cục cố định (`top-level final`).
-- Trạng thái thực tế không lưu trữ trong widget mà được quản lý tập trung bên trong một đối tượng độc lập: **`ProviderContainer`**.
-- Xây dựng một **Đồ thị phụ thuộc vô hướng không chu trình (Directed Acyclic Graph - DAG)**, cho phép các provider tự do phụ thuộc lẫn nhau một cách an toàn và tự động cập nhật khi nút cha thay đổi.
+### 1.2 — Giải Quyết Bài Toán Gì? Những Nỗi Đau Kỹ Thuật Của InheritedWidget / Provider Cũ
+Package `provider` trước đây phụ thuộc 100% vào `BuildContext` và vị trí cây widget, dẫn đến 3 vấn đề kiến trúc nghiêm trọng trong các ứng dụng enterprise:
+1. **Ngoại lệ thời gian chạy (`ProviderNotFoundException`)**: Nếu một widget cố gắng truy xuất dữ liệu từ một provider nằm ngoài nhánh cây của nó (ví dụ: route mới tạo bởi Navigator, dialog, hoặc bottom sheet), ứng dụng sẽ sụp đổ (crash) tại runtime.
+2. **Khó khăn khi kết hợp dữ liệu (Provider Combination)**: Việc Provider A phụ thuộc vào Provider B đòi hỏi widget của Provider B phải là tổ tiên của Provider A trên cây widget, buộc lập trình viên phải sử dụng các cấu trúc lồng nhau phức tạp và dễ lỗi như `ProxyProvider`.
+3. **Không an toàn kiểu dữ liệu tại thời điểm biên dịch (Compile-time Type Safety)**: Việc tìm kiếm provider dựa trên `runtimeType`, dẫn đến việc không thể khai báo hai Provider có cùng kiểu dữ liệu (ví dụ: hai đối tượng `String` hoặc hai đối tượng cấu hình khác nhau) trong cùng một phạm vi cây.
+4. **Hạn chế trong kiểm thử tự động (Unit Testing)**: Vì phụ thuộc chặt chẽ vào `BuildContext`, việc viết Unit Test cho logic trạng thái trong `provider` thường đòi hỏi phải dựng môi trường widget test giả lập, làm chậm tốc độ thực thi kiểm thử.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -41,7 +41,7 @@ Package `provider` ban đầu của Flutter được xây dựng hoàn toàn d�
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 — Phân Biệt Các Khái Niệm Cốt Lõi: `Ref`, `WidgetRef` Và `ProviderContainer`
+### 1.3 — Hệ Thống Khái Niệm Cốt Lõi: Ref, WidgetRef Và ProviderContainer
 
 | Khái Niệm | Vị Trí Xuất Hiện | Trách Nhiệm Kỹ Thuật |
 | :--- | :--- | :--- |
@@ -50,7 +50,7 @@ Package `provider` ban đầu của Flutter được xây dựng hoàn toàn d�
 | **`Ref`** | Bên trong thân hàm của Provider | Cho phép provider đọc, lắng nghe các provider khác và quản lý vòng đời nội bộ của chính nó. |
 | **`WidgetRef`** | Tham số trong `ConsumerWidget` / `Consumer` | Cầu nối cho phép widget tương tác với `ProviderContainer` từ môi trường giao diện người dùng. |
 
-### 1.3 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
 - Nắm vững kiến trúc nội bộ của `ProviderContainer` và cơ chế hoạt động của `ProviderScope`.
 - Phân biệt bản chất và kịch bản áp dụng chuẩn xác của 4 cơ chế tương tác: `ref.watch`, `ref.read`, `ref.listen`, và `ref.select`.
 - Xây dựng các Computed Provider (giá trị tính toán phái sinh) tự động đồng bộ theo đồ thị DAG.
@@ -59,7 +59,7 @@ Package `provider` ban đầu của Flutter được xây dựng hoàn toàn d�
 
 ---
 
-## Phần 2 — Cơ Chế Hoạt Động (Under the Hood)
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
 
 ### 2.1 — Cấu Trúc Nội Bộ Của `ProviderContainer` Và Đồ Thị DAG
 
@@ -136,7 +136,7 @@ flowchart TD
 
 ---
 
-## Phần 3 — Triển Khai Kỹ Thuật (Implementation Details)
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
 
 ### 3.1 — Khai Báo Hệ Thống Model Và Provider Chuẩn Hóa
 
@@ -496,7 +496,7 @@ class _TodoListSection extends ConsumerWidget {
 
 ---
 
-## Phần 4 — Lỗi Kiến Trúc Thường Gặp & Biện Pháp Khắc Phục
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
 ### 4.1 — Sử Dụng `ref.read()` Bên Trong Phương Thức `build()` Để Lấy Dữ Liệu Hiển Thị
 

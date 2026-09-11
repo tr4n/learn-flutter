@@ -2,30 +2,69 @@
 
 > **Cấp độ**: Senior / Staff Engineer  
 > **Thời gian đọc**: ~30 phút  
-> **Yêu cầu**: Đã đọc Bài 1.1 (Feature-First Architecture)
+> **Yêu cầu**: Nắm vững nguyên lý Clean Architecture và bài 1.1 (Feature-First Architecture).
 
 ---
 
-## Phần 1 — Architecture & Problem Statement
+## Dẫn Chiếu Tài Liệu Chính Thức
+- **Domain-Driven Design (Eric Evans) — Entities & Value Objects**: [martinfowler.com/bliki/EvansClassification.html](https://martinfowler.com/bliki/EvansClassification.html)
+- **Dart 3 Patterns & Exhaustiveness Checking**: [dart.dev/language/patterns](https://dart.dev/language/patterns)
+- **Dart 3 Sealed Classes Specification**: [dart.dev/language/class-modifiers#sealed](https://dart.dev/language/class-modifiers#sealed)
+- **Compensating Transactions Pattern**: [learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction](https://learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction)
 
-### Câu chuyện crash production thực tế
+---
 
-**Tháng 3/2024 — Ứng dụng ngân hàng, 2 triệu MAU:**
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
+
+### 1.1 — Nó Là Gì? Vị Trí Của Domain Layer Trong Hệ Thống Enterprise
+Domain Layer là tầng trung tâm, đại diện cho toàn bộ tri thức và quy tắc kinh doanh của doanh nghiệp. Tầng này được xây dựng độc lập hoàn toàn với framework giao diện (Flutter), mạng (HTTP/REST/GraphQL), và cơ sở dữ liệu (SQLite/Hive/Isar).
+
+Domain Layer được cấu thành từ 3 trụ cột kỹ thuật:
+1. **Entities**: Các đối tượng nghiệp vụ cốt lõi mang tính bất biến, được định danh duy nhất bởi thuộc tính `id`.
+2. **Value Objects**: Các thuộc tính cấu thành mang tính tự kiểm định (Self-validating) và được so sánh dựa trên toàn bộ giá trị thuộc tính (Value Equality), ngăn chặn hiện tượng lạm dụng kiểu dữ liệu nguyên thủy (Primitive Obsession).
+3. **UseCases (Interactors)**: Các đối tượng điều phối (Orchestrators) đóng gói duy nhất một quy trình giao dịch hoặc hành vi nghiệp vụ của người dùng.
 
 ```
-[CRITICAL] NullPointerException in TransferFundsScreen._onConfirmPressed
-Stack trace:
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    PRESENTATION LAYER (BLoC / UI)                       │
+│                   Biết về Flutter SDK, BuildContext                     │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ Gọi UseCase (Không gọi Repo trực tiếp)
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              DOMAIN LAYER                               │
+│   ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────────┐   │
+│   │    Use Cases     │  │     Entities     │  │     Repository      │   │
+│   │  (Orchestrators) │  │   & ValueObjs    │  │     Interfaces      │   │
+│   └────────┬─────────┘  └──────────────────┘  └─────────────────────┘   │
+│            │                 PURE DART — 0% FLUTTER                     │
+└────────────┼────────────────────────────────────────────────────────────┘
+             │ Hiện thực hóa Interfaces (Dependency Inversion)
+┌────────────▼────────────────────────────────────────────────────────────┐
+│                        DATA LAYER (HẠ TẦNG I/O)                         │
+│            Repositories Impl, Data Sources, DTOs, Dio Client            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 1.2 — Giải Quyết Bài Toán Gì? Phân Tích Sự Cố Crash Ngân Hàng & Khắc Phục Bằng Typed Failure
+Xem xét sự cố sụp đổ hệ thống thực tế trên một ứng dụng ngân hàng có 2 triệu người dùng:
+
+```text
+[CRITICAL BUG REPORT]
+Lỗi: NullPointerException tại TransferFundsScreen._onConfirmPressed
+Ngăn xếp:
   TransferFundsBloc._processTransfer (transfer_bloc.dart:87)
-  → AccountRepository.transfer (account_repository_impl.dart:43)
-  → Response body: {"status": "insufficient_funds", "balance": 0}
-  
-Hậu quả: 847 giao dịch bị duplicate charge trong 12 phút
+  -> AccountRepository.transfer (account_repository_impl.dart:43)
+  -> Response Payload: {"status": "insufficient_funds", "balance": 0}
+
+Hậu quả: 847 giao dịch bị trừ tiền kép (duplicate charge) trong 12 phút do người dùng tưởng lỗi mạng nên nhấn liên tục.
 ```
 
-**Root cause phân tích:**
-
+**Nguyên Nhân Gốc Rễ (Root Cause Analysis)**:
 ```dart
-// ❌ Code gây ra crash — Presentation layer xử lý business error
+// ❌ Mã nguồn gây sự cố: Presentation Layer tự phán đoán lỗi từ Exception
 class TransferFundsBloc {
   Future<void> _processTransfer(TransferEvent event) async {
     try {
@@ -34,562 +73,584 @@ class TransferFundsBloc {
         to: event.toAccount,
         amount: event.amount,
       );
-      // Developer assume result luôn thành công nếu không throw
-      emit(TransferSuccess(transactionId: result['transaction_id']!));
-      //                                                           ↑
-      //                                    Crash khi API trả về null
+      // Giả định nguy hiểm: nếu không ném Exception thì xem như thành công
+      emit(TransferSuccess(transactionId: result['transaction_id']!)); // Crash vì null!
     } catch (e) {
-      emit(TransferError(message: e.toString())); // Bắt Exception mù quáng
+      // Nuốt toàn bộ context lỗi: không phân biệt được lỗi mạng hay lỗi số dư
+      emit(TransferError(message: e.toString()));
     }
   }
 }
 ```
 
-**Vấn đề cốt lõi**: Không có Domain layer rõ ràng → Business rule "không đủ số dư" bị xử lý bằng Exception thay vì typed error → Presentation layer không biết phân biệt lỗi mạng vs lỗi nghiệp vụ.
+*Vấn đề kỹ thuật*:
+1. Bỏ qua tầng Domain: BLoC gọi trực tiếp Repository và xử lý payload dạng `Map<String, dynamic>` không an toàn kiểu dữ liệu.
+2. Sử dụng cơ chế ném ngoại lệ (`throw Exception`) để biểu diễn các quy tắc nghiệp vụ thông thường (như "Số dư không đủ", "Vượt hạn mức ngày"). Điều này phá vỡ luồng điều khiển và không ép buộc lập trình viên phải xử lý tại thời điểm biên dịch.
 
 ---
 
-## Phần 2 — Low-Level Mechanics
+### 1.3 — Bảng So Sánh Cơ Chế Xử Lý Lỗi: Exception vs Typed Result
 
-### 2.1. Kiến trúc Domain Layer — Dependency Rule
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                        │
-│  (BLoC/Riverpod/Widget) — Biết về Flutter, BuildContext      │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ calls UseCase (không gọi Repo trực tiếp)
-┌─────────────────────────────▼───────────────────────────────┐
-│                      DOMAIN LAYER                            │
-│  ┌─────────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │   Use Cases     │  │   Entities   │  │  Repo          │  │
-│  │ (Orchestrator)  │  │ (Pure Dart)  │  │  Interfaces    │  │
-│  └────────┬────────┘  └──────────────┘  └───────────────┘  │
-│           │           KHÔNG IMPORT Flutter/JSON/HTTP         │
-└───────────┼─────────────────────────────────────────────────┘
-            │ implements (chiều phụ thuộc ngược — DIP)
-┌───────────▼─────────────────────────────────────────────────┐
-│                       DATA LAYER                             │
-│  (Repository Impl, DataSource, DTO, Dio, Drift, Hive)        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2.2. Typed Error với Sealed Class (Dart 3)
-
-Thay vì `throw Exception`, Domain layer định nghĩa **tất cả kết quả có thể** bằng sealed class:
-
-```
-sealed class TransferResult
-├── TransferSuccess  (có transactionId)
-├── InsufficientFunds (có currentBalance, requiredAmount)
-├── AccountFrozen    (có frozenUntil)
-├── DailyLimitExceeded (có limit, attempted)
-└── NetworkFailure   (có isRetryable)
-
-Pattern exhaustive matching ở Presentation:
-switch (result) {
-  case TransferSuccess():  → emit SuccessState
-  case InsufficientFunds(): → emit ShowFundsWarning
-  case AccountFrozen():     → emit ShowContactSupportDialog
-  case DailyLimitExceeded():→ emit ShowLimitInfo
-  case NetworkFailure():    → emit RetryableError hoặc PermanentError
-}
-← Compiler báo lỗi nếu quên bất kỳ case nào
-```
-
-### 2.3. Vai trò của UseCase — Orchestration, không phải Logic
-
-UseCase không chứa business logic thô — nó **điều phối** (orchestrate) luồng giữa các dependencies:
-
-```
-PlaceOrderUseCase.execute(PlaceOrderParams)
-│
-├── 1. Validate params (CartItem >= 1, delivery address not empty)
-├── 2. CheckInventoryUseCase.execute(items)     ← Delegate sang UseCase khác
-├── 3. CalculatePriceUseCase.execute(items)
-├── 4. PaymentRepository.charge(amount, method)
-├── 5. OrderRepository.create(order)
-├── 6. CartRepository.clear()                   ← Chỉ clear sau khi order thành công
-└── Return: sealed PlaceOrderResult
-```
-
-**Quy tắc vàng**: 1 UseCase = 1 action từ góc nhìn người dùng. Không phải 1 API call.
+| Tiêu Chí | Ném Ngoại Lệ (`throw Exception`) | Kiểu Lỗi Tường Minh (`sealed class Result`) |
+| :--- | :--- | :--- |
+| **Kiểm tra tại compile-time** | Không; compiler không thể kiểm tra lỗi có bị bỏ sót hay không. | **Có**; Dart 3 cưỡng chế kiểm tra toàn vẹn (`switch`). |
+| **Hiệu năng thực thi** | Tốn kém tài nguyên để Unwind Stack và bắt StackTrace. | **Tối ưu**; chỉ là việc trả về một instance đối tượng thông thường. |
+| **Tính rõ ràng của hợp đồng** | Hàm `Future<Order> placeOrder()` che giấu các nhánh lỗi. | `Future<Result<Failure, Order>>` tuyên bố tường minh mọi khả năng. |
+| **Trải nghiệm gỡ lỗi** | Dễ bị nuốt lỗi (Swallowed) bởi khối `catch (e)` tổng quát. | Tách biệt rành mạch giữa Lỗi Kỹ Thuật và Lỗi Nghiệp Vụ. |
 
 ---
 
-## Phần 3 — Production Code Implementation
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+- Nắm vững bản chất của **Value Objects** để triệt tiêu lỗi làm tròn dấu phẩy động (Floating-point precision bugs) trong bài toán tài chính.
+- Xây dựng hệ thống kiểu lỗi toàn vẹn với **Dart 3 Sealed Classes** và toán tử so khớp mẫu (Pattern Matching).
+- Thiết kế UseCase theo mô hình **Orchestration Pipeline** có khả năng điều phối đa Repository và tự động Rollback khi lỗi.
+- Đảm bảo tính lũy đẳng (**Idempotency**) của UseCase để ngăn chặn giao dịch trùng lặp.
 
-### 3.1. Sealed Result Type — Nền tảng của Domain
+---
+
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
+
+### 2.1 — Bản Chất Của Value Object: Tránh Primitive Obsession & Bảo Toàn Độ Chính Xác Số Học
+Trong bài toán tài chính hoặc thương mại điện tử, việc sử dụng kiểu số thực `double` để tính toán tiền tệ là một sai lầm nghiêm trọng do chuẩn IEEE 754:
+```dart
+// Lỗi sai số dấu phẩy động trong Dart runtime:
+print(0.1 + 0.2); // In ra: 0.30000000000000004 thay vì 0.3!
+```
+
+*Bản chất kỹ thuật của Value Object `Money`*:
+1. **Lưu trữ bằng đơn vị nhỏ nhất (Smallest Unit / Integer Cents)**: Số tiền được lưu dưới dạng số nguyên `int _amountInCents` (ví dụ: $10.50 được lưu là `1050`, 50.000 VND được lưu là `50000`). Điều này triệt tiêu hoàn toàn sai số làm tròn số học.
+2. **Kiểm định kiểu dữ liệu tiền tệ (Currency Safety)**: Không thể cộng hai giá trị khác loại tiền tệ (`VND + USD`). Nếu cố tình thực hiện, phương thức ném lỗi logic nghiệp vụ ngay tại Domain.
+3. **Bất biến tuyệt đối (Immutability)**: Mọi thao tác toán tử (`+`, `-`, `*`) đều trả về một instance mới hoàn toàn.
+
+---
+
+### 2.2 — Cơ Chế Exhaustive Pattern Matching Của Dart 3 Trên Cây Kế Thừa Sealed Result
+Khi định nghĩa một lớp cơ sở với từ khóa `sealed`, trình biên dịch Dart ghi nhận toàn bộ các lớp con trực tiếp được khai báo trong cùng một tệp thư viện:
+
+```mermaid
+classDiagram
+    class Result~S, F~ {
+        <<sealed>>
+    }
+    class Success~S, F~ {
+        +S value
+    }
+    class FailureResult~S, F~ {
+        +F failure
+    }
+    Result <|-- Success
+    Result <|-- FailureResult
+
+    class Failure {
+        <<sealed>>
+        +String message
+    }
+    class NetworkFailure
+    class InsufficientFundsFailure
+    class DailyLimitExceededFailure
+    Failure <|-- NetworkFailure
+    Failure <|-- InsufficientFundsFailure
+    Failure <|-- DailyLimitExceededFailure
+```
+
+Khi tầng Presentation tiêu thụ kết quả thông qua câu lệnh `switch`:
+```dart
+return switch (result) {
+  Success(:final value) => SuccessState(value),
+  FailureResult(failure: InsufficientFundsFailure()) => InsufficientFundsState(),
+  FailureResult(failure: DailyLimitExceededFailure()) => DailyLimitState(),
+  FailureResult(failure: NetworkFailure()) => RetryableNetworkErrorState(),
+};
+```
+Nếu kỹ sư thêm một lớp lỗi mới `AccountFrozenFailure` vào Domain mà chưa cập nhật khối `switch` trên giao diện, **trình biên dịch sẽ lập tức từ chối build code**, bảo đảm an toàn tuyệt đối trước khi release ra production.
+
+---
+
+### 2.3 — Bản Chất Điều Phối (Orchestration) & Tính Lũy Đẳng (Idempotency) Trong UseCase
+UseCase không trực tiếp thao tác với cơ sở dữ liệu, mà hoạt động như một cỗ máy trạng thái điều phối các Repositories:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Presentation (Bloc)
+    participant UC as PlaceOrderUseCase
+    participant CR as CartRepository
+    participant IR as InventoryRepository
+    participant PR as PaymentRepository
+    participant OR as OrderRepository
+
+    UI->>UC: execute(PlaceOrderParams)
+    UC->>UC: 1. Validate Business Invariants
+    UC->>CR: 2. Lấy giỏ hàng hiện tại
+    CR-->>UC: Trả về Cart Entity
+    UC->>IR: 3. Khóa tồn kho (Reserve Stock)
+    IR-->>UC: Khóa thành công
+    UC->>PR: 4. Trừ tiền thẻ (kèm Idempotency-Key)
+    alt Trừ tiền thất bại
+        PR-->>UC: Payment Failure
+        UC->>IR: [Rollback] Giải phóng tồn kho (Release Stock)
+        UC-->>UI: FailureResult(PaymentFailure)
+    else Trừ tiền thành công
+        PR-->>UC: Payment Success (Receipt)
+        UC->>OR: 5. Lưu đơn hàng chính thức
+        OR-->>UC: Order Entity
+        UC->>CR: 6. Xóa giỏ hàng
+        UC-->>UI: Success(Order Entity)
+    end
+```
+
+**Tính Lũy Đẳng (Idempotency)**: UseCase tạo ra một mã khóa `idempotencyKey` duy nhất cho mỗi phiên giao dịch. Nếu kết nối mạng bị rớt khi đang gọi thanh toán, việc kích hoạt lại UseCase với cùng khóa này sẽ đảm bảo cổng thanh toán nhận diện được yêu cầu đã xử lý và không trừ tiền lần thứ hai.
+
+---
+
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
+
+Xây dựng module Chuyển Tiền Ngân Hàng (`features/transfer/`) tích hợp đầy đủ Value Object, Sealed Result, và quy trình điều phối an toàn.
+
+### 3.1 — Bước 1: Xây Dựng Core Result & Failure Hierarchies
 
 ```dart
-// core/error/failures.dart
-// Result type dùng cho mọi UseCase trong toàn app
+// lib/core/error/failures.dart
 
-/// Base class cho mọi business failure — KHÔNG phải Exception
+import 'package:flutter/foundation.dart';
+
+@immutable
 sealed class Failure {
-  const Failure({required this.message, this.code});
   final String message;
-  final String? code;
+  final String? technicalCode;
+
+  const Failure({required this.message, this.technicalCode});
 }
 
-// Network failures — có thể retry
 final class NetworkFailure extends Failure {
-  const NetworkFailure({super.message = 'Lỗi kết nối mạng', super.code})
-      : isRetryable = true;
   final bool isRetryable;
-}
-
-final class TimeoutFailure extends Failure {
-  const TimeoutFailure({super.message = 'Yêu cầu quá thời gian chờ'});
-}
-
-// Business rule failures — KHÔNG retry
-final class ValidationFailure extends Failure {
-  const ValidationFailure({
-    required super.message,
-    required this.field,
+  const NetworkFailure({
+    super.message = 'Không có kết nối mạng.',
+    this.isRetryable = true,
   });
-  final String field;
 }
 
-final class NotFoundFailure extends Failure {
-  const NotFoundFailure({required super.message, required this.resource});
-  final String resource;
-}
-
-final class UnauthorizedFailure extends Failure {
-  const UnauthorizedFailure({super.message = 'Phiên đăng nhập hết hạn'});
+final class ValidationFailure extends Failure {
+  final String invalidField;
+  const ValidationFailure({required super.message, required this.invalidField});
 }
 
 final class ServerFailure extends Failure {
-  const ServerFailure({required super.message, super.code});
+  final int statusCode;
+  const ServerFailure({required super.message, required this.statusCode});
+}
+
+// Lỗi nghiệp vụ chuyên biệt cho ngân hàng
+final class InsufficientFundsFailure extends Failure {
+  final int currentBalanceCents;
+  final int requiredAmountCents;
+
+  const InsufficientFundsFailure({
+    required this.currentBalanceCents,
+    required this.requiredAmountCents,
+  }) : super(message: 'Số dư tài khoản không đủ để thực hiện giao dịch.');
+}
+
+final class DailyLimitExceededFailure extends Failure {
+  final int limitCents;
+  const DailyLimitExceededFailure({required this.limitCents})
+      : super(message: 'Giao dịch vượt quá hạn mức chuyển khoản trong ngày.');
 }
 ```
 
 ```dart
-// core/usecase/usecase.dart
-// Base interface — mọi UseCase đều tuân thủ contract này
+// lib/core/functional/result.dart
 
-typedef FutureResult<T> = Future<Result<T, Failure>>;
+import 'package:flutter/foundation.dart';
 
-/// UseCase đồng bộ có params
-abstract interface class UseCase<Type, Params> {
-  FutureResult<Type> execute(Params params);
-}
-
-/// UseCase không có params (ví dụ: GetCurrentUser)
-abstract interface class NoParamUseCase<Type> {
-  FutureResult<Type> execute();
-}
-
-/// UseCase trả về Stream (real-time)
-abstract interface class StreamUseCase<Type, Params> {
-  Stream<Result<Type, Failure>> execute(Params params);
-}
-
-// Result type (không dùng package bên ngoài — Dart 3 native)
+@immutable
 sealed class Result<S, F> {
   const Result();
 }
 
 final class Success<S, F> extends Result<S, F> {
-  const Success(this.value);
   final S value;
+  const Success(this.value);
 }
 
-final class Failure_<S, F> extends Result<S, F> {
-  const Failure_(this.failure);
+final class FailureResult<S, F> extends Result<S, F> {
   final F failure;
-}
-
-// Extension để dùng thoải mái
-extension ResultExtension<S, F> on Result<S, F> {
-  bool get isSuccess => this is Success<S, F>;
-  bool get isFailure => this is Failure_<S, F>;
-
-  S get value => (this as Success<S, F>).value;
-  F get failure => (this as Failure_<S, F>).failure;
-
-  T fold<T>({
-    required T Function(S value) onSuccess,
-    required T Function(F failure) onFailure,
-  }) {
-    return switch (this) {
-      Success<S, F>(:final value) => onSuccess(value),
-      Failure_<S, F>(:final failure) => onFailure(failure),
-    };
-  }
+  const FailureResult(this.failure);
 }
 ```
 
-### 3.2. Entity Production-grade — Transfer Money Domain
+---
+
+### 3.2 — Bước 2: Triển Khai Value Object `Money` Số Học An Toàn
 
 ```dart
-// features/banking/domain/entities/money.dart
-// Value Object — bất biến, so sánh theo giá trị, không theo reference
+// lib/shared/domain/entities/money.dart
 
-import 'package:meta/meta.dart';
+import 'package:flutter/foundation.dart';
 
 @immutable
 final class Money {
-  const Money._(this._amount, this.currency);
+  final int amountInCents;
+  final String currency;
 
-  final int _amount; // Lưu bằng đơn vị nhỏ nhất (cent/xu) — tránh float precision bug
-  final String currency; // ISO 4217: 'VND', 'USD'
+  const Money._(this.amountInCents, this.currency);
 
-  /// Factory constructor với validation
-  factory Money.of(num amount, String currency) {
-    if (amount < 0) throw ArgumentError('Số tiền không được âm: $amount');
-    if (currency.length != 3) throw ArgumentError('Currency code phải 3 ký tự ISO 4217');
-    // Chuyển về đơn vị nhỏ nhất để tránh floating-point error
-    final amountInSmallestUnit = (amount * 100).round();
-    return Money._(amountInSmallestUnit, currency.toUpperCase());
+  factory Money.of(num majorUnits, String currency) {
+    if (majorUnits < 0) {
+      throw ArgumentError('Số tiền không được âm: $majorUnits');
+    }
+    if (currency.length != 3) {
+      throw ArgumentError('Mã tiền tệ phải theo chuẩn ISO 4217 (3 ký tự).');
+    }
+    final cents = (majorUnits * 100).round();
+    return Money._(cents, currency.toUpperCase());
   }
 
-  factory Money.zero(String currency) => Money._(0, currency);
+  factory Money.zero(String currency) => Money._(0, currency.toUpperCase());
 
-  /// Hiển thị cho user — không dùng cho tính toán
-  double get amount => _amount / 100;
-  int get amountInSmallestUnit => _amount;
+  double get inMajorUnits => amountInCents / 100.0;
 
-  // Arithmetic — type-safe, không thể cộng VND + USD
   Money operator +(Money other) {
-    _assertSameCurrency(other);
-    return Money._(_amount + other._amount, currency);
+    _validateCurrencyMatch(other);
+    return Money._(amountInCents + other.amountInCents, currency);
   }
 
   Money operator -(Money other) {
-    _assertSameCurrency(other);
-    final result = _amount - other._amount;
-    if (result < 0) throw StateError('Kết quả âm: không được phép trong domain');
+    _validateCurrencyMatch(other);
+    final result = amountInCents - other.amountInCents;
+    if (result < 0) {
+      throw StateError('Số dư sau khi trừ không được mang giá trị âm.');
+    }
     return Money._(result, currency);
   }
 
-  Money operator *(num factor) {
-    if (factor < 0) throw ArgumentError('Factor không được âm');
-    return Money._((_amount * factor).round(), currency);
-  }
-
   bool operator >(Money other) {
-    _assertSameCurrency(other);
-    return _amount > other._amount;
+    _validateCurrencyMatch(other);
+    return amountInCents > other.amountInCents;
   }
 
-  bool operator >=(Money other) {
-    _assertSameCurrency(other);
-    return _amount >= other._amount;
-  }
-
-  void _assertSameCurrency(Money other) {
+  void _validateCurrencyMatch(Money other) {
     if (currency != other.currency) {
-      throw StateError(
-        'Không thể thao tác giữa 2 loại tiền: $currency vs ${other.currency}',
-      );
+      throw StateError('Không thể thực hiện số học giữa hai loại tiền khác nhau: $currency và ${other.currency}');
     }
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Money && _amount == other._amount && currency == other.currency;
+      other is Money &&
+          amountInCents == other.amountInCents &&
+          currency == other.currency;
 
   @override
-  int get hashCode => Object.hash(_amount, currency);
-
-  @override
-  String toString() => '${amount.toStringAsFixed(2)} $currency';
+  int get hashCode => Object.hash(amountInCents, currency);
 }
 ```
 
-```dart
-// features/banking/domain/entities/transfer_request.dart
-@immutable
-final class TransferRequest {
-  const TransferRequest({
-    required this.fromAccountId,
-    required this.toAccountId,
-    required this.amount,
-    this.note,
-    required this.requestedAt,
-  });
+---
 
-  final String fromAccountId;
-  final String toAccountId;
-  final Money amount;
-  final String? note;
-  final DateTime requestedAt;
-
-  // Domain validation — không phải UI validation
-  List<String> validate() {
-    final errors = <String>[];
-    if (fromAccountId == toAccountId) {
-      errors.add('Tài khoản nguồn và đích không thể giống nhau');
-    }
-    if (amount.amountInSmallestUnit <= 0) {
-      errors.add('Số tiền chuyển phải lớn hơn 0');
-    }
-    if (amount > Money.of(500_000_000, amount.currency)) {
-      errors.add('Vượt hạn mức giao dịch đơn tối đa (500 triệu VND)');
-    }
-    return errors;
-  }
-}
-```
-
-### 3.3. PlaceOrderUseCase — Orchestration Production-grade
+### 3.3 — Bước 3: Triển Khai `TransferFundsUseCase` Với Cơ Chế Bù Trừ
 
 ```dart
-// features/orders/domain/usecases/place_order_usecase.dart
-import 'package:injectable/injectable.dart';
+// lib/features/transfer/domain/usecases/transfer_funds_usecase.dart
 
-// Params — immutable value object, không dùng Map<String, dynamic>
-@immutable
-final class PlaceOrderParams {
-  const PlaceOrderParams({
-    required this.cartItems,
-    required this.deliveryAddress,
-    required this.paymentMethod,
-    required this.userId,
+import '../../../../core/error/failures.dart';
+import '../../../../core/functional/result.dart';
+import '../../../../shared/domain/entities/money.dart';
+
+// Tham số đầu vào bất biến
+final class TransferParams {
+  final String sourceAccountId;
+  final String destinationAccountId;
+  final Money transferAmount;
+  final String idempotencyKey;
+
+  const TransferParams({
+    required this.sourceAccountId,
+    required this.destinationAccountId,
+    required this.transferAmount,
+    required this.idempotencyKey,
   });
-
-  final List<CartItem> cartItems;
-  final DeliveryAddress deliveryAddress;
-  final PaymentMethod paymentMethod;
-  final String userId;
 }
 
-// Typed success result
-@immutable
-final class PlaceOrderResult {
-  const PlaceOrderResult({
-    required this.orderId,
-    required this.estimatedDelivery,
-    required this.totalPaid,
+// Hợp đồng repositories
+abstract interface class AccountRepository {
+  Future<Result<Money, Failure>> getAccountBalance(String accountId);
+  Future<Result<void, Failure>> debitAccount({
+    required String accountId,
+    required Money amount,
+    required String idempotencyKey,
   });
-
-  final String orderId;
-  final DateTime estimatedDelivery;
-  final Money totalPaid;
+  Future<Result<void, Failure>> creditAccount({
+    required String accountId,
+    required Money amount,
+    required String idempotencyKey,
+  });
 }
 
-@injectable
-final class PlaceOrderUseCase
-    implements UseCase<PlaceOrderResult, PlaceOrderParams> {
+final class TransferReceipt {
+  final String transactionId;
+  final DateTime executedAt;
+  const TransferReceipt({required this.transactionId, required this.executedAt});
+}
 
-  const PlaceOrderUseCase({
-    required OrderRepository orderRepository,
-    required CartRepository cartRepository,
-    required PaymentRepository paymentRepository,
-    required InventoryRepository inventoryRepository,
-    required PriceCalculator priceCalculator,
-  })  : _orderRepo = orderRepository,
-        _cartRepo = cartRepository,
-        _paymentRepo = paymentRepository,
-        _inventoryRepo = inventoryRepository,
-        _calculator = priceCalculator;
+final class TransferFundsUseCase {
+  final AccountRepository _accountRepo;
 
-  final OrderRepository _orderRepo;
-  final CartRepository _cartRepo;
-  final PaymentRepository _paymentRepo;
-  final InventoryRepository _inventoryRepo;
-  final PriceCalculator _calculator;
+  const TransferFundsUseCase(this._accountRepo);
 
-  @override
-  FutureResult<PlaceOrderResult> execute(PlaceOrderParams params) async {
-    // Step 1: Domain validation trước khi gọi bất kỳ repository nào
-    final validationErrors = _validateParams(params);
-    if (validationErrors.isNotEmpty) {
-      return Failure_(ValidationFailure(
-        message: validationErrors.first,
-        field: 'order_params',
+  Future<Result<TransferReceipt, Failure>> execute(TransferParams params) async {
+    // 1. Kiểm tra điều kiện tiên quyết (Precondition Validation)
+    if (params.sourceAccountId == params.destinationAccountId) {
+      return const FailureResult(ValidationFailure(
+        message: 'Tài khoản nguồn và đích không được trùng nhau.',
+        invalidField: 'destinationAccountId',
       ));
     }
 
-    // Step 2: Kiểm tra tồn kho (không tốn tiền nếu hết hàng)
-    final inventoryCheck = await _inventoryRepo.checkAvailability(
-      items: params.cartItems,
-    );
-    if (inventoryCheck case Failure_(:final failure)) {
-      return Failure_(failure); // Propagate failure — không wrap thêm
+    // 2. Kiểm tra số dư tài khoản nguồn
+    final balanceResult = await _accountRepo.getAccountBalance(params.sourceAccountId);
+    if (balanceResult is FailureResult<Money, Failure>) {
+      return FailureResult(balanceResult.failure);
+    }
+    final balance = (balanceResult as Success<Money, Failure>).value;
+
+    if (params.transferAmount > balance) {
+      return FailureResult(InsufficientFundsFailure(
+        currentBalanceCents: balance.amountInCents,
+        requiredAmountCents: params.transferAmount.amountInCents,
+      ));
     }
 
-    // Step 3: Tính giá (bao gồm discount, shipping fee)
-    final priceResult = _calculator.calculate(
-      items: params.cartItems,
-      address: params.deliveryAddress,
+    // 3. Trừ tiền tài khoản nguồn (Debit)
+    final debitResult = await _accountRepo.debitAccount(
+      accountId: params.sourceAccountId,
+      amount: params.transferAmount,
+      idempotencyKey: '${params.idempotencyKey}_debit',
     );
-
-    // Step 4: Charge payment
-    final paymentResult = await _paymentRepo.charge(
-      amount: priceResult.totalAmount,
-      method: params.paymentMethod,
-      userId: params.userId,
-    );
-
-    if (paymentResult case Failure_(:final failure)) {
-      // Payment fail — không cần rollback gì cả vì chưa tạo order
-      return Failure_(failure);
+    if (debitResult is FailureResult<void, Failure>) {
+      return FailureResult(debitResult.failure);
     }
 
-    final paymentId = (paymentResult as Success).value;
-
-    // Step 5: Tạo order — chỉ sau khi payment thành công
-    final orderResult = await _orderRepo.create(
-      items: params.cartItems,
-      address: params.deliveryAddress,
-      paymentId: paymentId,
-      totalAmount: priceResult.totalAmount,
-      userId: params.userId,
+    // 4. Cộng tiền tài khoản đích (Credit)
+    final creditResult = await _accountRepo.creditAccount(
+      accountId: params.destinationAccountId,
+      amount: params.transferAmount,
+      idempotencyKey: '${params.idempotencyKey}_credit',
     );
 
-    if (orderResult case Failure_(:final failure)) {
-      // CRITICAL: Order creation failed sau khi đã charge tiền
-      // → Phải refund — đây là compensating transaction
-      await _paymentRepo.refund(paymentId: paymentId);
-      return Failure_(failure);
+    // Xử lý bù trừ (Compensating Transaction): Nếu cộng tiền thất bại, hoàn tiền tài khoản nguồn
+    if (creditResult is FailureResult<void, Failure>) {
+      await _accountRepo.creditAccount(
+        accountId: params.sourceAccountId,
+        amount: params.transferAmount,
+        idempotencyKey: '${params.idempotencyKey}_refund_rollback',
+      );
+      return FailureResult(creditResult.failure);
     }
 
-    // Step 6: Clear cart CHỈ sau khi order thành công
-    // Nếu clear fail, không ảnh hưởng order — chỉ log warning
-    await _cartRepo.clearCart().catchError(
-      (Object error) => _logCartClearWarning(error, params.userId),
-    );
-
-    final order = (orderResult as Success).value;
-    return Success(PlaceOrderResult(
-      orderId: order.id,
-      estimatedDelivery: order.estimatedDelivery,
-      totalPaid: priceResult.totalAmount,
+    return Success(TransferReceipt(
+      transactionId: params.idempotencyKey,
+      executedAt: DateTime.now(),
     ));
   }
-
-  List<String> _validateParams(PlaceOrderParams params) {
-    final errors = <String>[];
-    if (params.cartItems.isEmpty) errors.add('Giỏ hàng không được rỗng');
-    if (params.deliveryAddress.isIncomplete) errors.add('Địa chỉ giao hàng chưa đầy đủ');
-    if (!params.paymentMethod.isActive) errors.add('Phương thức thanh toán không hợp lệ');
-    return errors;
-  }
-
-  void _logCartClearWarning(Object error, String userId) {
-    // Inject Logger trong production, không dùng print
-    debugPrint('[WARN] Cart clear failed for user $userId: $error');
-  }
 }
 ```
 
-### 3.4. Presentation — Xử lý Result type an toàn
+---
+
+### 3.4 — Bước 4: Tiêu Thụ Typed Result Tại Presentation BLoC
 
 ```dart
-// Trong BLoC — xử lý exhaustive switching
-Future<void> _onPlaceOrder(
-  PlaceOrderEvent event,
-  Emitter<OrderState> emit,
-) async {
-  emit(const OrderLoading());
+// lib/features/transfer/presentation/bloc/transfer_bloc.dart
 
-  final result = await _placeOrderUseCase.execute(PlaceOrderParams(
-    cartItems: event.cartItems,
-    deliveryAddress: event.deliveryAddress,
-    paymentMethod: event.paymentMethod,
-    userId: event.userId,
-  ));
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/error/failures.dart';
+import '../../../../core/functional/result.dart';
+import '../../domain/usecases/transfer_funds_usecase.dart';
 
-  // Dart 3 exhaustive switch — compiler sẽ báo lỗi nếu thiếu case
-  switch (result) {
-    case Success(:final value):
-      emit(OrderSuccess(
-        orderId: value.orderId,
-        estimatedDelivery: value.estimatedDelivery,
-      ));
+sealed class TransferState {}
+final class TransferInitialState extends TransferState {}
+final class TransferLoadingState extends TransferState {}
+final class TransferSuccessState extends TransferState {
+  final TransferReceipt receipt;
+  TransferSuccessState(this.receipt);
+}
+final class InsufficientFundsErrorState extends TransferState {
+  final int balance;
+  InsufficientFundsErrorState(this.balance);
+}
+final class GeneralErrorState extends TransferState {
+  final String message;
+  GeneralErrorState(this.message);
+}
 
-    case Failure_(:final failure):
-      switch (failure) {
-        case ValidationFailure(:final message):
-          emit(OrderValidationError(message: message));
-        case NetworkFailure(isRetryable: true):
-          emit(const OrderRetryableError(
-            message: 'Lỗi mạng, vui lòng thử lại',
-          ));
-        case NetworkFailure(isRetryable: false):
-          emit(const OrderPermanentError(
-            message: 'Không thể kết nối, vui lòng liên hệ hỗ trợ',
-          ));
-        case UnauthorizedFailure():
-          emit(const OrderSessionExpired());
-        case ServerFailure(:final message):
-          emit(OrderServerError(message: message));
-        // NotFoundFailure, TimeoutFailure... — compiler nhắc nếu thiếu
-        default:
-          emit(OrderUnknownError(message: failure.message));
+class TransferBloc extends Bloc<TransferParams, TransferState> {
+  final TransferFundsUseCase _useCase;
+
+  TransferBloc(this._useCase) : super(TransferInitialState()) {
+    on<TransferParams>((params, emit) async {
+      emit(TransferLoadingState());
+
+      final result = await _useCase.execute(params);
+
+      // Phân tích toàn vẹn mọi trường hợp lỗi và thành công
+      switch (result) {
+        case Success(:final value):
+          emit(TransferSuccessState(value));
+        case FailureResult(failure: InsufficientFundsFailure(:final currentBalanceCents)):
+          emit(InsufficientFundsErrorState(currentBalanceCents));
+        case FailureResult(:final failure):
+          emit(GeneralErrorState(failure.message));
       }
+    });
   }
 }
 ```
 
 ---
 
-## Phần 4 — Profiling & Performance Trade-offs
+### 3.5 — Bước 5: Kiểm Thử Đơn Vị (Unit Test) Kịch Bản Bù Trừ Giao Dịch (Rollback)
 
-### Tại sao Sealed Class + Result thay vì Exception?
+Kiểm thử kịch bản Credit tài khoản đích thất bại và xác minh UseCase phải tự động gọi lệnh Credit hoàn tiền cho tài khoản nguồn:
 
-| Tiêu chí | Exception | Sealed Result |
-|:---|:---|:---|
-| **Compile-time safety** | ❌ Runtime fail | ✅ Compiler kiểm tra exhaustive |
-| **Tài liệu hóa lỗi** | ❌ Ẩn trong doc/comment | ✅ Hiển thị rõ trong signature |
-| **Testability** | ❌ Phải mock throw | ✅ Return value, dễ test |
-| **Performance** | ❌ Stack trace unwinding tốn ~100μs | ✅ Zero overhead |
-| **Composability** | ❌ Khó chain | ✅ Chain qua fold(), map() |
+```dart
+// test/features/transfer/domain/usecases/transfer_funds_usecase_test.dart
 
-**Đo lường overhead Exception vs Result (Dart VM, release mode):**
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:app/core/error/failures.dart';
+import 'package:app/core/functional/result.dart';
+import 'package:app/features/transfer/domain/entities/money.dart';
+import 'package:app/features/transfer/domain/repositories/account_repository.dart';
+import 'package:app/features/transfer/domain/usecases/transfer_funds_usecase.dart';
 
-```
-Benchmark: 100,000 lần gọi hàm lỗi
+class MockAccountRepository extends Mock implements AccountRepository {}
 
-try { throw Exception('error'); } catch (e) {}
-→ avg: 112 microseconds/op (stack trace generation)
+void main() {
+  late MockAccountRepository mockRepo;
+  late TransferFundsUseCase useCase;
 
-return const Failure_(NetworkFailure(message: 'error'));
-→ avg: 0.8 microseconds/op (object allocation chỉ)
+  setUp(() {
+    mockRepo = MockAccountRepository();
+    useCase = TransferFundsUseCase(mockRepo);
+  });
 
-Kết luận: Exception ~140x đắt hơn khi dùng trong hot path
-(ví dụ: validate từng item trong danh sách 1000 sản phẩm)
+  test('Khi nạp tiền tài khoản đích thất bại, UseCase phải tự động kích hoạt Rollback', () async {
+    const params = TransferParams(
+      sourceAccountId: 'ACC_SRC_001',
+      destinationAccountId: 'ACC_DST_002',
+      transferAmount: Money(500000), // 5.000 VNĐ
+      idempotencyKey: 'tx_uuid_9999',
+    );
+
+    // 1. Arrange: Số dư đủ 10.000 VNĐ
+    when(() => mockRepo.getAccountBalance('ACC_SRC_001'))
+        .thenAnswer((_) async => const Success(Money(1000000)));
+
+    // 2. Trừ tiền tài khoản nguồn thành công
+    when(() => mockRepo.debitAccount(
+          accountId: 'ACC_SRC_001',
+          amount: const Money(500000),
+          idempotencyKey: 'tx_uuid_9999_debit',
+        )).thenAnswer((_) async => const Success(null));
+
+    // 3. Cộng tiền tài khoản đích gặp sự cố mạng (Failure)
+    when(() => mockRepo.creditAccount(
+          accountId: 'ACC_DST_002',
+          amount: const Money(500000),
+          idempotencyKey: 'tx_uuid_9999_credit',
+        )).thenAnswer((_) async => const FailureResult(NetworkFailure(
+          message: 'Lỗi kết nối cổng thanh toán NAPAS',
+        )));
+
+    // 4. Kỳ vọng mockRepo.creditAccount được gọi để Rollback cho ACC_SRC_001
+    when(() => mockRepo.creditAccount(
+          accountId: 'ACC_SRC_001',
+          amount: const Money(500000),
+          idempotencyKey: 'tx_uuid_9999_refund_rollback',
+        )).thenAnswer((_) async => const Success(null));
+
+    // Act
+    final result = await useCase.execute(params);
+
+    // Assert
+    expect(result, isA<FailureResult<TransferReceipt, Failure>>());
+
+    // Xác minh giao dịch hoàn tiền BẮT BUỘC phải được gọi 1 lần
+    verify(() => mockRepo.creditAccount(
+          accountId: 'ACC_SRC_001',
+          amount: const Money(500000),
+          idempotencyKey: 'tx_uuid_9999_refund_rollback',
+        )).called(1);
+  });
+}
 ```
 
 ---
 
-## Phần 5 — Production Checklist
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
+### 4.1 — ❌ Anti-pattern 1: Bắt Exception Chung Chung Làm Nuốt Chi Tiết Lỗi
+
+#### Mô tả lỗi:
+Sử dụng `catch (e)` ở tầng Repository hoặc UseCase rồi ném ra một chuỗi String chung chung:
+
+```dart
+// ❌ LỖI: Nuốt thông tin kỹ thuật
+try {
+  return await api.sendPayment();
+} catch (e) {
+  throw Exception('Lỗi thanh toán'); // Mất toàn bộ HTTP code và error body
+}
 ```
-[ ] ❌ Domain entity có import 'dart:convert' hoặc json_annotation
-    ✅ Chỉ DTO (data/models/) mới có fromJson/toJson
-    Lý do: Domain bị bind với serialization format → phải sửa khi API thay đổi
 
-[ ] ❌ UseCase gọi trực tiếp Dio/http hoặc SharedPreferences
-    ✅ UseCase chỉ gọi Repository interface — không biết storage cụ thể
-    Lý do: Không thể unit test UseCase mà không cần network thật
+#### Biện pháp phòng chống:
+Ánh xạ chính xác từng mã lỗi mạng (`401` $\to$ `UnauthorizedFailure`, `422` $\to$ `ValidationFailure`, `500` $\to$ `ServerFailure`) và lưu giữ `technicalCode` bên trong đối tượng `Failure`.
 
-[ ] ❌ Repository interface trả về DTO (CartItemDto)
-    ✅ Repository interface trả về Entity (CartItem)
-    Lý do: Presentation layer bị bind với tầng Data — vi phạm DIP
+---
 
-[ ] ❌ try { ... } catch (e) { emit(Error(e.toString())); }
-    ✅ Dùng sealed Result type với typed Failure
-    Lý do: Mất thông tin lỗi cụ thể → không thể xử lý khác nhau
+### 4.2 — ❌ Anti-pattern 2: UseCase Nhồi Nhét Toàn Bộ CRUD Nghiệp Vụ
 
-[ ] ❌ PlaceOrderUseCase chứa logic tính giá (discount formula)
-    ✅ Delegate sang PriceCalculator — UseCase chỉ orchestrate
-    Lý do: UseCase quá mập → vi phạm SRP → khó test
+#### Mô tả lỗi:
+Tạo lớp `OrderUseCase` có 10 methods: `createOrder`, `cancelOrder`, `getOrderHistory`, `trackDelivery`...
 
-[ ] ❌ UseCase nhận Map<String, dynamic> params
-    ✅ Định nghĩa Params class immutable riêng biệt
-    Lý do: Không type-safe, refactor sẽ vỡ ở runtime
+#### Biện pháp phòng chống:
+Tuân thủ nguyên tắc **1 UseCase = 1 Hành Động Doanh Nghiệp**. Chia nhỏ thành các class chuyên trách: `CreateOrderUseCase`, `CancelOrderUseCase`, `TrackDeliveryUseCase`.
 
-[ ] ❌ Rollback logic bị thiếu khi step 3/5 thất bại
-    ✅ Mỗi UseCase phải có compensating transaction cho critical flow
-    Lý do: Payment charged nhưng Order không tạo → mất tiền user
+---
 
-[ ] ❌ Entity sử dụng double cho tiền tệ (price: double)
-    ✅ Dùng Value Object Money với amountInSmallestUnit: int
-    Lý do: double precision error: 0.1 + 0.2 = 0.30000000000000004
-```
+### 4.3 — ❌ Anti-pattern 3: Bỏ Qua Idempotency Key Trong Các Tác Vụ Giao Dịch
+
+#### Mô tả lỗi:
+Thực hiện các thao tác trừ tiền hoặc đặt hàng mà không kèm mã khóa nhận diện giao dịch duy nhất từ phía máy khách. Khi mạng chập chờn, người dùng nhấn nút gửi lại sẽ bị trừ tiền 2 lần.
+
+#### Biện pháp phòng chống:
+Mỗi yêu cầu giao dịch bất biến phải sinh ra một mã khóa ngẫu nhiên `idempotencyKey = Uuid().v4()` ngay khi người dùng nhấn xác nhận tại tầng giao diện và mang theo mã khóa này qua từng phân tầng tới tận backend server.
+
+---
+
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Thử Thách Thẩm Định
+
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
+
+#### Câu hỏi 1: Tại sao Value Object `Money` lại ghi đè toán tử `operator ==` nhưng Entity `Account` lại chỉ so sánh theo `id`?
+*Phân tích kỹ thuật:*
+- **Value Object**: Hai tờ tiền 100.000 VND có giá trị hoàn toàn tương đương nhau trong giao dịch kinh tế. Chúng không có định danh cá biệt, do đó việc so sánh bằng (`==`) dựa trên cấu trúc giá trị nội tại (`amount` và `currency`).
+- **Entity**: Tài khoản `Account` có một danh tính liên tục xuyên suốt thời gian. Ngay cả khi số dư tài khoản biến đổi liên tục từ 0 đồng lên 100 triệu, nó vẫn là cùng một thực thể tài khoản duy nhất của người dùng, được xác định bởi `id`.
+
+---
+
+#### Câu hỏi 2: Sự khác biệt cơ bản giữa Domain Invariants và Presentation Validation là gì?
+*Phân tích kỹ thuật:*
+- **Presentation Validation**: Kiểm tra tính hợp lệ về mặt định dạng người dùng nhập (ví dụ: email có chứa ký tự `@` không, mật khẩu đủ 8 ký tự chưa). Mục đích là phản hồi tức thì cho UI.
+- **Domain Invariants**: Kiểm tra các quy tắc sống còn của nghiệp vụ (ví dụ: số tiền chuyển không vượt quá số dư hiện tại, tài khoản nhận không bị khóa thẻ). Những quy tắc này bắt buộc phải thỏa mãn để bảo đảm tính toàn vẹn của dữ liệu doanh nghiệp.
+
+---
+
+### 5.2 — Bài Tập Thực Hành: Thiết Kế Idempotent Transaction UseCase
+
+**Yêu cầu**:
+1. Xây dựng `CancelSubscriptionUseCase` cho phép hủy gói thành viên VIP của người dùng.
+2. Thiết kế logic bù trừ: Nếu bước hủy trên cổng thanh toán Stripe thành công nhưng bước cập nhật trạng thái trong CSDL máy chủ bị mất kết nối, UseCase phải xử lý như thế nào để đảm bảo hệ thống không rơi vào trạng thái bất nhất?
+3. Viết 3 ca Unit Test kiểm tra các trường hợp: Thành công, Lỗi mạng có hoàn tác, và Kiểm tra tính lũy đẳng khi gọi 2 lần với cùng một `idempotencyKey`.

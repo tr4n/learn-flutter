@@ -1,362 +1,611 @@
 # Bài 2.1: BLoC Event Transformers & Concurrency Policies
 
-> **Cấp độ**: Senior Engineer  
+> **Cấp độ**: Senior / Staff Engineer  
 > **Thời gian đọc**: ~30 phút  
-> **Yêu cầu**: Đã biết BLoC/Cubit cơ bản; hiểu Stream và Dart async
+> **Yêu cầu**: Nắm vững BLoC/Cubit cơ bản, Streams, Reactive Programming (Rx) và Dart Event Loop.
 
 ---
 
-## Phần 1 — Architecture & Problem Statement
-
-### Bài toán: Search-as-you-type gây UI freeze
-
-**Hệ thống thương mại điện tử, 500k DAU:**
-
-```
-Bug report: User gõ "smartphone" → app bị lag 3-5 giây
-Root cause: Mỗi keystroke → 1 API call → 9 calls đồng thời  
-            → Response về không theo thứ tự → UI hiện kết quả sai
-            
-Timeline thực tế:
-t=0ms:   User gõ 's'    → Call 1 (search: 's')
-t=100ms: User gõ 'sm'   → Call 2 (search: 'sm')
-t=200ms: User gõ 'sma'  → Call 3 (search: 'sma')
-...
-t=800ms: User gõ 'smar' → Call 8 (search: 'smar')
-
-Response về không theo thứ tự:
-t=1200ms: Response 8 (smar)  → UI hiển thị "smar" results ✓
-t=1350ms: Response 3 (sma)   → UI hiển thị "sma" results ✗ ← BUG!
-t=1800ms: Response 1 (s)     → UI hiển thị "s" results ✗✗✗
-```
-
-**Root cause kỹ thuật**: BLoC dùng `sequential` transformer mặc định → tất cả event được xử lý đồng thời → race condition trên kết quả trả về.
+## Dẫn Chiếu Tài Liệu Chính Thức
+- **bloc_concurrency Package Documentation**: [pub.dev/packages/bloc_concurrency](https://pub.dev/packages/bloc_concurrency)
+- **BLoC Library Architecture Guide — Event Transformers**: [bloclibrary.dev/bloc-concepts/#event-transformers](https://bloclibrary.dev/bloc-concepts/#event-transformers)
+- **ReactiveX Operators (ConcatMap, SwitchMap, ExhaustMap)**: [reactivex.io/documentation/operators.html](https://reactivex.io/documentation/operators.html)
+- **Dart Streams & Asynchronous Programming**: [dart.dev/tutorials/language/streams](https://dart.dev/tutorials/language/streams)
 
 ---
 
-## Phần 2 — Low-Level Mechanics
+## Phần 1 — Khái Niệm & Bài Toán Kiến Trúc (Nó Là Gì & Giải Quyết Bài Toán Gì?)
 
-### 2.1. Kiến trúc EventTransformer
+### 1.1 — Nó Là Gì? EventTransformer & Chính Sách Concurrency Trong BLoC
+Trong kiến trúc BLoC (Business Logic Component), một `EventTransformer` là một hàm bậc cao (Higher-order Function) can thiệp vào luồng `Stream<Event>` đầu vào trước khi sự kiện được chuyển giao cho bộ xử lý `EventHandler`.
+
+Mặc định trong package `bloc`, các sự kiện gửi vào được xử lý theo cơ chế **`concurrent()`** (xử lý đồng thời không khóa) hoặc **`sequential()`** (xử lý tuần tự theo hàng đợi FIFO). Tuy nhiên, các bài toán thực tế trên ứng dụng di động đòi hỏi các chiến lược kiểm soát luồng bất đồng bộ phức tạp hơn nhằm giải quyết tải dồn dập (Backpressure).
+
+Package `bloc_concurrency` cung cấp 4 chính sách đồng thời cốt lõi:
+1. **`sequential()`**: Xử lý tuần tự từng sự kiện một theo thứ tự xuất hiện trong hàng đợi FIFO. Sự kiện kế tiếp chỉ bắt đầu khi sự kiện trước hoàn tất.
+2. **`droppable()`**: Bỏ qua (drop) hoàn toàn các sự kiện mới đến nếu sự kiện hiện tại đang trong quá trình thực thi.
+3. **`restartable()`**: Hủy bỏ (cancel) tác vụ đang chạy để ưu tiên xử lý ngay sự kiện mới nhất vừa xuất hiện.
+4. **`concurrent()`**: Xử lý song song tất cả các sự kiện cùng lúc mà không có bất kỳ ràng buộc thứ tự hay hủy bỏ nào.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      KIẾN TRÚC EVENT TRANSFORMER                        │
+│                                                                         │
+│   UI Events Stream:  E1 ───► E2 ───► E3 ───► E4                         │
+│                               │                                         │
+│                               ▼                                         │
+│   EventTransformer:  [ Debounce / Throttle / Concurrency Policy ]       │
+│                               │                                         │
+│                               ▼                                         │
+│   Transformed Stream:        E1' ──────────► E4'                        │
+│                               │                                         │
+│                               ▼                                         │
+│   Event Handler:     on<Event>(_handler) ──► emit(NewState)             │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 1.2 — Giải Quyết Bài Toán Gì? Thách Thức Khi Xử Lý Dữ Liệu Bất Đồng Bộ Dồn Dập
+Khi ứng dụng phục vụ số lượng người dùng lớn (High DAU), việc thiếu kiểm soát Concurrency Policy sẽ gây ra 3 lỗi nghiêm trọng:
+
+1. **Sự cố Search-as-you-type và Race Condition kết quả mạng**:
+   - Khi người dùng gõ từ khóa `"smartphone"`, 10 sự kiện gõ phím được phát xạ liên tục trong 800ms.
+   - Nếu xử lý đồng thời, 10 request mạng được gửi đi cùng lúc. Do độ trễ mạng biến thiên (Jitter), request thứ 3 (tìm `"sma"`) có thể phản hồi sau request thứ 10 (tìm `"smartphone"`).
+   - Giao diện người dùng sẽ hiển thị kết quả của từ khóa `"sma"` sau cùng, gây lỗi hiển thị sai lệch dữ liệu trầm trọng (Stale Response Bug).
+2. **Sự cố nhấn nút kép (Double-Tap / Spam Click)**:
+   - Tại màn hình thanh toán, người dùng nhấn liên tục 2 lần vào nút "Xác Nhận Đặt Hàng" trong khoảng 200ms do mạng lag. Nếu dùng chính sách mặc định, hệ thống gửi 2 request trừ tiền song song, gây trùng lặp giao dịch (Duplicate Charge).
+3. **Hiện tượng nghẽn hàng đợi (Queue Head-of-Line Blocking)**:
+   - Nếu áp dụng `sequential()` cho sự kiện tìm kiếm, người dùng gõ 10 ký tự sẽ buộc hệ thống phải chờ lần lượt 10 API calls hoàn tất. Mỗi call mất 500ms khiến ứng dụng bị đóng băng (Lag) tới 5 giây sau khi người dùng đã ngừng gõ.
+
+---
+
+### 1.3 — Bảng So Sánh 4 Chính Sách Concurrency
+
+| Chính Sách | Cơ Chế Xử Lý | Toán Tử Rx Tương Ứng | Kịch Bản Sử Dụng Chuẩn |
+| :--- | :--- | :--- | :--- |
+| **`sequential()`** | Hàng đợi FIFO; chờ sự kiện trước xong mới chạy sự kiện sau. | `concatMap` | Đồng bộ dữ liệu offline, các tác vụ ghi CSDL tuần tự. |
+| **`droppable()`** | Bỏ qua sự kiện mới nếu đang bận xử lý sự kiện cũ. | `exhaustMap` | Nhấn nút Submit form, nút Mua hàng, tải thêm trang (Pagination). |
+| **`restartable()`** | Hủy tác vụ cũ đang chạy, lập tức xử lý sự kiện mới. | `switchMap` | Tìm kiếm (Search-as-you-type), lọc danh mục, tab chuyển đổi. |
+| **`concurrent()`** | Chạy song song độc lập, không chờ đợi, không hủy. | `flatMap` | Ghi log phân tích (Analytics), gửi telemetry, tác vụ độc lập. |
+
+---
+
+### 1.4 — Mục Tiêu Kỹ Thuật Cần Đạt Được
+- Nắm vững kiến trúc nội tại của `EventTransformer<E>` và các toán tử Stream cơ sở trong Dart.
+- Phân biệt bản chất cơ chế giữa **Debounce** (chờ im lặng) và **Throttle** (giới hạn tần suất).
+- Xây dựng lớp `SearchBloc` chuẩn Enterprise tích hợp đa transformers trên từng loại sự kiện riêng biệt.
+- Sử dụng `emit.forEach` để quản lý vòng đời Stream an toàn, triệt tiêu rò rỉ bộ nhớ.
+- Thiết lập hệ sinh thái giám sát tập trung với `BlocObserver`.
+
+---
+
+## Phần 2 — Bản Chất Là Gì? (Under the Hood & Cơ Chế Hoạt Động)
+
+### 2.1 — Cấu Trúc Typedef Của `EventTransformer<E>`
+Trong thư viện `bloc`, `EventTransformer` được định nghĩa như sau:
 
 ```dart
-// EventTransformer là gì về mặt kỹ thuật?
-typedef EventTransformer<E> = Stream<E> Function(
-  Stream<E> events,           // Stream các event đến
-  EventMapper<E> mapper,      // Function xử lý từng event
-);
+typedef EventMapper<Event> = Stream<Transition<Event, State>> Function(Event event);
 
-// Mỗi event handler trong BLoC có thể có transformer riêng:
-on<SearchQueryChanged>(
-  _onSearchQueryChanged,
-  transformer: debounce(const Duration(milliseconds: 300)),
-  //                ↑ Áp dụng cho chỉ event này, không ảnh hưởng event khác
+typedef EventTransformer<Event> = Stream<Event> Function(
+  Stream<Event> events,
+  EventMapper<Event> mapper,
 );
 ```
 
-### 2.2. 4 Concurrency Policies — Sơ đồ so sánh
+- `events`: Luồng Stream chứa toàn bộ các sự kiện thô phát ra từ giao diện.
+- `mapper`: Hàm closure ánh xạ từng sự kiện thành một Stream các chuyển đổi trạng thái (Transitions).
+- *Bản chất*: Transformer chính là một toán tử biến đổi Stream. Thay vì trực tiếp đưa từng event vào handler, BLoC chuyển quyền điều phối luồng cho transformer để quyết định khi nào và làm thế nào để thực thi `mapper`.
 
-```
-Events đến: E1──E2──E3──E4──E5
-(E1 chưa xử lý xong khi E2 đến)
+---
 
-SEQUENTIAL (default):
-E1 ██████████│ E2 ██████████│ E3 ██████████│ E4 ██████████│ E5 ██████████
-→ Xử lý tuần tự, E2 chờ E1 xong. Tốt cho: submit form, critical write.
-→ VẤN ĐỀ với search: E1 block → tất cả chờ → UI lag.
+### 2.2 — Giải Phẫu Cơ Chế Concurrency Policies Dưới Góc Nhìn Stream
 
-DROPPABLE:
-E1 ██████████│ E2(dropped) │ E3(dropped) │ E4(dropped) │ E5 ██████████
-→ Khi E1 đang xử lý, E2,3,4 bị DROP, chỉ E5 được xử lý sau E1 xong.
-→ Tốt cho: button tap (tránh double submit), load more (tránh duplicate page).
+```text
+Chuỗi sự kiện đầu vào:  ──E1────E2──E3────────E4─────────►
 
-RESTARTABLE:
-E1 ██│cancel│ E2 ██│cancel│ E3 ██│cancel│ E4 ██│cancel│ E5 ██████████
-→ Khi E2 đến, HỦY E1 đang chạy, bắt đầu E2. Chỉ event mới nhất được xử lý.
-→ ĐÚNG cho search-as-you-type: luôn show kết quả cho từ đang gõ.
+1. SEQUENTIAL (concatMap):
+   E1: [===== Xử lý =====]
+   E2:                     [===== Xử lý =====]
+   E3:                                         [===== Xử lý =====]
+   E4:                                                             [===== Xử lý =====]
 
-CONCURRENT:
-E1 ████████████████████│
-E2     ████████████│
-E3         █████████████████│
-E4             ████████│
-→ Tất cả xử lý song song. Không có cancel/drop.
-→ Tốt cho: analytics logging, fire-and-forget, không cần ordering.
-→ NGUY HIỂM nếu events phụ thuộc nhau → race condition.
-```
+2. DROPPABLE (exhaustMap):
+   E1: [===== Xử lý =====]
+   E2: (BỊ DROP BỎ QUA)
+   E3: (BỊ DROP BỎ QUA)
+   E4:                     [===== Xử lý =====]
 
-### 2.3. Debounce vs Throttle — Khác biệt quan trọng
+3. RESTARTABLE (switchMap):
+   E1: [=Hủy=]
+   E2:         [=Hủy=]
+   E3:                 [===== Xử lý =====]
+   E4:                                         [===== Xử lý =====]
 
-```
-Input: keystroke mỗi 80ms
-       k  k  k  k  k  k  k  [stop 400ms]  k  k
-       │  │  │  │  │  │  │               │  │
-
-DEBOUNCE (300ms):
-       Chỉ fire sau khi im lặng 300ms:
-       ........................................│fire│.........│fire│
-       → Tốt cho: search, auto-save draft (tránh quá nhiều API call)
-
-THROTTLE (300ms):
-       Fire ngay lần đầu, rồi tối đa 1 lần mỗi 300ms:
-       │fire│.......│fire│.......│fire│.............│fire│..........
-       → Tốt cho: scroll event, mouse move, sensor data (cần real-time nhưng rate-limited)
+4. CONCURRENT (flatMap):
+   E1: [===== Xử lý =====]
+   E2:     [===== Xử lý =====]
+   E3:       [===== Xử lý =====]
+   E4:                 [===== Xử lý =====]
 ```
 
 ---
 
-## Phần 3 — Production Code Implementation
+### 2.3 — Debounce So Với Throttle: Phân Biệt Cơ Chế Kiểm Soát Tần Suất
 
-### 3.1. Custom EventTransformers
+```text
+Luồng phím bấm:  ──k──k──k──k──────[Nghỉ 400ms]──────k──k──────►
+
+DEBOUNCE (Thời gian chờ 300ms):
+Chỉ kích hoạt khi luồng sự kiện ngừng phát xạ (im lặng) đủ 300ms:
+                 ...............................│FIRE│..........
+
+THROTTLE (Thời gian giới hạn 300ms):
+Kích hoạt ngay tại sự kiện đầu tiên, sau đó khóa luồng trong 300ms tiếp theo:
+                 │FIRE│.........................│FIRE│..........
+```
+
+- **Debounce**: Tối ưu tuyệt đối cho việc tiết kiệm băng thông và tài nguyên CPU. Thích hợp cho ô nhập tìm kiếm (chờ người dùng gõ xong từ mới gọi API) hoặc tính năng tự động lưu bản nháp (Auto-save draft).
+- **Throttle**: Đảm bảo phản hồi tức thì lần đầu và duy trì tốc độ cập nhật ổn định theo chu kỳ. Thích hợp cho sự kiện cuộn trang (Scroll Listener), cử chỉ kéo thả (Drag Gestures), hoặc cập nhật tọa độ GPS.
+
+---
+
+## Phần 3 — Triển Khai Kỹ Thuật (Triển Khai Như Nào? Step-by-Step Implementation)
+
+Xây dựng module Tìm Kiếm Sản Phẩm Chuẩn Enterprise (`SearchBloc`) tích hợp đa chính sách concurrency.
+
+### 3.1 — Bước 1: Xây Dựng Thư Viện Custom EventTransformers
 
 ```dart
 // lib/core/bloc/event_transformers.dart
+
 import 'package:bloc/bloc.dart';
-import 'package:bloc_concurrency/bloc_concurrency.dart';
-import 'package:rxdart/transformers.dart';
+import 'package:rxdart/rxdart.dart';
 
-/// Debounce: Chờ im lặng [duration] trước khi xử lý
-/// Dùng cho: Search-as-you-type, auto-save
-EventTransformer<E> debounce<E>(Duration duration) {
+/// Debounce kết hợp Restartable (switchMap):
+/// Chờ im lặng [duration], sau đó hủy bỏ request trước đó nếu có query mới đến
+EventTransformer<E> debounceRestartable<E>(Duration duration) {
   return (events, mapper) => events
       .debounceTime(duration)
-      .switchMap(mapper); // switchMap = cancel previous khi event mới đến
+      .switchMap(mapper);
 }
 
-/// Throttle: Xử lý ngay, rate-limit thành tối đa 1 lần mỗi [duration]
-/// Dùng cho: Scroll events, sensor data
-EventTransformer<E> throttle<E>(Duration duration) {
+/// Throttle: Kích hoạt tức thì, giới hạn tần suất tối đa 1 lần mỗi [duration]
+EventTransformer<E> throttleDroppable<E>(Duration duration) {
   return (events, mapper) => events
-      .throttleTime(duration, trailing: false)
-      .flatMap(mapper);
-}
-
-/// Debounce + Droppable: Chờ [duration] rồi xử lý, bỏ qua các event tiếp theo
-/// cho đến khi request hiện tại hoàn thành
-/// Dùng cho: Search với expensive API call
-EventTransformer<E> debounceDroppable<E>(Duration duration) {
-  return (events, mapper) => events
-      .debounceTime(duration)
-      .flatMap(mapper) // Flat, không cancel — chờ xong rồi nhận event tiếp
-      ..take(1); // Chỉ lấy 1 result tại 1 thời điểm
+      .throttleTime(duration, leading: true, trailing: false)
+      .exhaustMap(mapper);
 }
 ```
 
-### 3.2. SearchBloc Production-grade
+---
+
+### 3.2 — Bước 2: Khai Báo Events & States Đa Dạng
 
 ```dart
-// features/search/presentation/blocs/search_bloc.dart
-import 'package:bloc/bloc.dart';
+// lib/features/search/presentation/bloc/search_event.dart
+
+import 'package:flutter/foundation.dart';
+
+@immutable
+sealed class SearchEvent {
+  const SearchEvent();
+}
+
+final class SearchQueryChanged extends SearchEvent {
+  final String query;
+  const SearchQueryChanged(this.query);
+}
+
+final class SearchNextPageRequested extends SearchEvent {
+  const SearchNextPageRequested();
+}
+
+final class SearchFilterApplied extends SearchEvent {
+  final String category;
+  const SearchFilterApplied(this.category);
+}
+```
+
+```dart
+// lib/features/search/presentation/bloc/search_state.dart
+
+import 'package:flutter/foundation.dart';
+
+@immutable
+sealed class SearchState {
+  const SearchState();
+}
+
+final class SearchInitialState extends SearchState {
+  const SearchInitialState();
+}
+
+final class SearchLoadingState extends SearchState {
+  const SearchLoadingState();
+}
+
+final class SearchSuccessState extends SearchState {
+  final List<String> items;
+  final bool hasNextPage;
+  final int pageIndex;
+  final String query;
+
+  const SearchSuccessState({
+    required this.items,
+    required this.hasNextPage,
+    required this.pageIndex,
+    required this.query,
+  });
+}
+
+final class SearchFailureState extends SearchState {
+  final String errorMessage;
+  const SearchFailureState(this.errorMessage);
+}
+```
+
+---
+
+### 3.3 — Bước 3: Triển Khai `SearchBloc` Với Concurrency Policies Chuyên Biệt
+
+```dart
+// lib/features/search/presentation/bloc/search_bloc.dart
+
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:injectable/injectable.dart';
+import '../../../../core/bloc/event_transformers.dart';
+import 'search_event.dart';
+import 'search_state.dart';
 
-part 'search_bloc.freezed.dart';
-
-// Events
-@freezed
-sealed class SearchEvent with _$SearchEvent {
-  /// User gõ từ khóa — debounce + restartable
-  const factory SearchEvent.queryChanged(String query) = SearchQueryChanged;
-  
-  /// User nhấn filter — sequential (filter thay đổi không cancel search)
-  const factory SearchEvent.filterApplied(SearchFilter filter) = SearchFilterApplied;
-  
-  /// User scroll đến cuối — droppable (tránh load page duplicate)
-  const factory SearchEvent.loadNextPage() = SearchLoadNextPage;
-  
-  /// User pull-to-refresh — restartable (reset về trang đầu)
-  const factory SearchEvent.refreshed() = SearchRefreshed;
+abstract interface class SearchRepository {
+  Future<List<String>> searchProducts(String query, int page);
 }
 
-// States
-@freezed
-sealed class SearchState with _$SearchState {
-  const factory SearchState.initial() = SearchInitial;
-  const factory SearchState.loading() = SearchLoading;
-  const factory SearchState.success({
-    required List<Product> products,
-    required bool hasNextPage,
-    required int currentPage,
-    required String query,
-    required SearchFilter filter,
-  }) = SearchSuccess;
-  const factory SearchState.failure(Failure failure) = SearchFailure;
-  const factory SearchState.loadingMore({
-    required List<Product> currentProducts,
-    required int currentPage,
-  }) = SearchLoadingMore;
-}
+class SearchBloc extends Bloc<SearchEvent, SearchState> {
+  final SearchRepository _repository;
+  int _currentPage = 1;
 
-@injectable
-final class SearchBloc extends Bloc<SearchEvent, SearchState> {
-  SearchBloc({
-    required SearchProductsUseCase searchUseCase,
-    required AnalyticsService analytics,
-  })  : _searchUseCase = searchUseCase,
-        _analytics = analytics,
-        super(const SearchState.initial()) {
-
-    // Mỗi event type có transformer riêng biệt — QUAN TRỌNG
+  SearchBloc(this._repository) : super(const SearchInitialState()) {
+    // 1. Tìm kiếm: Debounce 300ms + Restartable (Hủy request cũ khi có từ khóa mới)
     on<SearchQueryChanged>(
       _onQueryChanged,
-      transformer: debounce(const Duration(milliseconds: 350)),
-      // restartable() cancel request cũ khi query mới đến
-      // Kết hợp debounce + restartable qua debounce transformer dùng switchMap
+      transformer: debounceRestartable(const Duration(milliseconds: 300)),
     );
 
+    // 2. Tải thêm trang: Droppable (Bỏ qua thao tác cuộn nếu trang trước đang tải)
+    on<SearchNextPageRequested>(
+      _onNextPageRequested,
+      transformer: droppable(),
+    );
+
+    // 3. Áp dụng bộ lọc: Sequential (Chờ request hiện tại xong mới áp dụng bộ lọc mới)
     on<SearchFilterApplied>(
       _onFilterApplied,
-      transformer: sequential(), // Đợi search hiện tại xong mới apply filter
-    );
-
-    on<SearchLoadNextPage>(
-      _onLoadNextPage,
-      transformer: droppable(), // Bỏ qua nếu đang load — tránh duplicate page
-    );
-
-    on<SearchRefreshed>(
-      _onRefreshed,
-      transformer: restartable(), // Cancel request cũ, reset từ đầu
+      transformer: sequential(),
     );
   }
-
-  final SearchProductsUseCase _searchUseCase;
-  final AnalyticsService _analytics;
-  
-  // Giữ filter state riêng — không phụ thuộc vào SearchState
-  SearchFilter _currentFilter = SearchFilter.empty();
-  int _currentPage = 1;
 
   Future<void> _onQueryChanged(
     SearchQueryChanged event,
     Emitter<SearchState> emit,
   ) async {
     final query = event.query.trim();
-    
-    // Không search nếu query rỗng hoặc quá ngắn
     if (query.isEmpty) {
-      emit(const SearchState.initial());
+      emit(const SearchInitialState());
       return;
     }
-    
-    if (query.length < 2) return; // Minimum 2 ký tự
-    
-    emit(const SearchState.loading());
-    _currentPage = 1; // Reset pagination khi query thay đổi
-    
-    await emit.forEach(
-      // emit.forEach subscribe Stream — tự động cancel khi bloc đóng
-      _searchUseCase.executeStream(SearchParams(
-        query: query,
-        filter: _currentFilter,
-        page: _currentPage,
-      )),
-      onData: (result) => switch (result) {
-        Success(:final value) => SearchState.success(
-            products: value.items,
-            hasNextPage: value.hasNextPage,
-            currentPage: _currentPage,
-            query: query,
-            filter: _currentFilter,
-          ),
-        Failure_(:final failure) => SearchState.failure(failure),
-      },
-      onError: (error, stackTrace) {
-        addError(error, stackTrace); // Gửi error đến BlocObserver
-        return SearchState.failure(
-          ServerFailure(message: error.toString()),
-        );
-      },
-    );
-    
-    // Log analytics sau khi search xong (fire-and-forget, không await)
-    unawaited(_analytics.logSearch(query: query));
-  }
 
-  Future<void> _onLoadNextPage(
-    SearchLoadNextPage event,
-    Emitter<SearchState> emit,
-  ) async {
-    // Chỉ load more khi đang ở Success state và còn trang tiếp
-    final currentState = state;
-    if (currentState is! SearchSuccess || !currentState.hasNextPage) return;
-    
-    emit(SearchState.loadingMore(
-      currentProducts: currentState.products,
-      currentPage: currentState.currentPage,
-    ));
-    
-    _currentPage++;
-    
-    final result = await _searchUseCase.execute(SearchParams(
-      query: currentState.query,
-      filter: _currentFilter,
-      page: _currentPage,
-    ));
-    
-    switch (result) {
-      case Success(:final value):
-        emit(SearchState.success(
-          // Append thêm vào list hiện tại — không replace
-          products: [...currentState.products, ...value.items],
-          hasNextPage: value.hasNextPage,
-          currentPage: _currentPage,
-          query: currentState.query,
-          filter: _currentFilter,
-        ));
-      case Failure_(:final failure):
-        _currentPage--; // Rollback page counter khi fail
-        emit(SearchState.failure(failure));
+    emit(const SearchLoadingState());
+    _currentPage = 1;
+
+    try {
+      final results = await _repository.searchProducts(query, _currentPage);
+      emit(SearchSuccessState(
+        items: results,
+        hasNextPage: results.length >= 20,
+        pageIndex: _currentPage,
+        query: query,
+      ));
+    } catch (e) {
+      emit(SearchFailureState(e.toString()));
     }
   }
-  
+
+  Future<void> _onNextPageRequested(
+    SearchNextPageRequested event,
+    Emitter<SearchState> emit,
+  ) async {
+    final currentState = state;
+    if (currentState is! SearchSuccessState || !currentState.hasNextPage) return;
+
+    try {
+      _currentPage++;
+      final nextItems = await _repository.searchProducts(
+        currentState.query,
+        _currentPage,
+      );
+
+      emit(SearchSuccessState(
+        items: [...currentState.items, ...nextItems],
+        hasNextPage: nextItems.length >= 20,
+        pageIndex: _currentPage,
+        query: currentState.query,
+      ));
+    } catch (e) {
+      _currentPage--; // Hoàn tác số trang nếu request thất bại
+      emit(SearchFailureState(e.toString()));
+    }
+  }
+
   Future<void> _onFilterApplied(
     SearchFilterApplied event,
     Emitter<SearchState> emit,
   ) async {
-    _currentFilter = event.filter;
+    final currentState = state;
+    if (currentState is! SearchSuccessState) return;
+
+    emit(const SearchLoadingState());
     _currentPage = 1;
-    
-    final currentQuery = switch (state) {
-      SearchSuccess(:final query) => query,
-      _ => '',
-    };
-    
-    if (currentQuery.isEmpty) return;
-    
-    // Trigger lại search với filter mới
-    add(SearchEvent.queryChanged(currentQuery));
-  }
-  
-  Future<void> _onRefreshed(
-    SearchRefreshed event,
-    Emitter<SearchState> emit,
-  ) async {
-    final currentQuery = switch (state) {
-      SearchSuccess(:final query) => query,
-      _ => '',
-    };
-    
-    if (currentQuery.isEmpty) return;
-    _currentPage = 1;
-    add(SearchEvent.queryChanged(currentQuery));
+
+    try {
+      final filteredResults = await _repository.searchProducts(
+        '${currentState.query}&category=${event.category}',
+        _currentPage,
+      );
+      emit(SearchSuccessState(
+        items: filteredResults,
+        hasNextPage: filteredResults.length >= 20,
+        pageIndex: _currentPage,
+        query: currentState.query,
+      ));
+    } catch (e) {
+      emit(SearchFailureState(e.toString()));
+    }
   }
 }
 ```
 
-### 3.3. BlocObserver — Monitor toàn bộ BLoC trong app
+---
+
+### 3.4 — Bước 4: Triển Khai `CheckoutBloc` Với Chính Sách `droppable()`
+
+Để loại trừ triệt để nguy cơ người dùng nhấn đúp (Double-tap) hoặc spam nút "Xác nhận thanh toán" làm gửi nhiều request trừ tiền song song:
+
+```dart
+// lib/features/checkout/presentation/bloc/checkout_bloc.dart
+
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:bloc_concurrency/bloc_concurrency.dart';
+
+sealed class CheckoutEvent {
+  const CheckoutEvent();
+}
+
+final class CheckoutSubmitRequested extends CheckoutEvent {
+  final String orderId;
+  final int amountCents;
+  const CheckoutSubmitRequested({required this.orderId, required this.amountCents});
+}
+
+sealed class CheckoutState {
+  const CheckoutState();
+}
+
+final class CheckoutIdleState extends CheckoutState {
+  const CheckoutIdleState();
+}
+
+final class CheckoutProcessingState extends CheckoutState {
+  const CheckoutProcessingState();
+}
+
+final class CheckoutSuccessState extends CheckoutState {
+  final String transactionId;
+  const CheckoutSuccessState(this.transactionId);
+}
+
+final class CheckoutFailureState extends CheckoutState {
+  final String error;
+  const CheckoutFailureState(this.error);
+}
+
+abstract interface class PaymentRepository {
+  Future<String> charge({required String orderId, required int amountCents});
+}
+
+final class CheckoutBloc extends Bloc<CheckoutEvent, CheckoutState> {
+  final PaymentRepository _paymentRepository;
+
+  CheckoutBloc(this._paymentRepository) : super(const CheckoutIdleState()) {
+    // droppable(): Nếu đang có giao dịch xử lý dở dang, BỎ QUA mọi sự kiện click tiếp theo
+    on<CheckoutSubmitRequested>(
+      _onSubmitRequested,
+      transformer: droppable(),
+    );
+  }
+
+  Future<void> _onSubmitRequested(
+    CheckoutSubmitRequested event,
+    Emitter<CheckoutState> emit,
+  ) async {
+    emit(const CheckoutProcessingState());
+    try {
+      final transactionId = await _paymentRepository.charge(
+        orderId: event.orderId,
+        amountCents: event.amountCents,
+      );
+      emit(CheckoutSuccessState(transactionId));
+    } catch (e) {
+      emit(CheckoutFailureState(e.toString()));
+    }
+  }
+}
+```
+
+---
+
+### 3.5 — Bước 5: Triển Khai `OfflineSyncBloc` Với Chính Sách `sequential()`
+
+Trong kịch bản ứng dụng hoạt động ngoại tuyến, người dùng thực hiện liên tiếp các thao tác: Thêm sản phẩm $\to$ Cập nhật số lượng $\to$ Xóa sản phẩm. Nếu các sự kiện này được gửi lên server song song (`concurrent`), thao tác "Xóa" có thể đến server trước thao tác "Thêm", gây xung đột dữ liệu nghiêm trọng. Chính sách `sequential()` đảm bảo xử lý nghiêm ngặt theo hàng đợi FIFO:
+
+```dart
+// lib/features/sync/presentation/bloc/sync_bloc.dart
+
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:bloc_concurrency/bloc_concurrency.dart';
+
+sealed class SyncEvent {
+  const SyncEvent();
+}
+
+final class SyncMutationQueued extends SyncEvent {
+  final String entityId;
+  final String mutationType; // 'CREATE', 'UPDATE', 'DELETE'
+  final Map<String, dynamic> payload;
+
+  const SyncMutationQueued({
+    required this.entityId,
+    required this.mutationType,
+    required this.payload,
+  });
+}
+
+sealed class SyncState {
+  const SyncState();
+}
+
+final class SyncIdleState extends SyncState {
+  const SyncIdleState();
+}
+
+final class SyncInProgressState extends SyncState {
+  final int remainingTasks;
+  const SyncInProgressState(this.remainingTasks);
+}
+
+final class SyncCompletedState extends SyncState {
+  const SyncCompletedState();
+}
+
+abstract interface class SyncRemoteGateway {
+  Future<void> pushMutation(String type, Map<String, dynamic> payload);
+}
+
+final class OfflineSyncBloc extends Bloc<SyncEvent, SyncState> {
+  final SyncRemoteGateway _gateway;
+  int _pendingCount = 0;
+
+  OfflineSyncBloc(this._gateway) : super(const SyncIdleState()) {
+    // sequential(): Cưỡng chế thực thi tuần tự từng mutation theo thứ tự FIFO
+    on<SyncMutationQueued>(
+      _onMutationQueued,
+      transformer: sequential(),
+    );
+  }
+
+  Future<void> _onMutationQueued(
+    SyncMutationQueued event,
+    Emitter<SyncState> emit,
+  ) async {
+    _pendingCount++;
+    emit(SyncInProgressState(_pendingCount));
+
+    try {
+      await _gateway.pushMutation(event.mutationType, event.payload);
+    } finally {
+      _pendingCount--;
+      if (_pendingCount == 0) {
+        emit(const SyncCompletedState());
+      } else {
+        emit(SyncInProgressState(_pendingCount));
+      }
+    }
+  }
+}
+```
+
+---
+
+### 3.6 — Bước 6: Kiểm Thử Hành Vi Concurrency Với `bloc_test`
+
+Để kiểm chứng tính đúng đắn của Concurrency Policy tại compile-time và CI/CD, ta sử dụng package `bloc_test` với các chuỗi phát xạ sự kiện tốc độ cao:
+
+```dart
+// test/features/search/presentation/bloc/search_bloc_test.dart
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:bloc_test/bloc_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:app/features/search/presentation/bloc/search_bloc.dart';
+import 'package:app/features/search/presentation/bloc/search_event.dart';
+import 'package:app/features/search/presentation/bloc/search_state.dart';
+
+class MockSearchRepository extends Mock implements SearchRepository {}
+
+void main() {
+  group('SearchBloc Concurrency Policy Test', () {
+    late MockSearchRepository repository;
+
+    setUp(() {
+      repository = MockSearchRepository();
+    });
+
+    blocTest<SearchBloc, SearchState>(
+      'Chính sách debounceRestartable phải hủy bỏ request trung gian và chỉ thực thi từ khóa cuối cùng',
+      build: () {
+        when(() => repository.searchProducts('flutter', 1))
+            .thenAnswer((_) async => ['Flutter Architecture', 'Flutter Testing']);
+        return SearchBloc(repository);
+      },
+      act: (bloc) async {
+        // Phát 3 sự kiện dồn dập trong khoảng thời gian < 300ms debounce
+        bloc.add(const SearchQueryChanged('f'));
+        await Future.delayed(const Duration(milliseconds: 50));
+        bloc.add(const SearchQueryChanged('flut'));
+        await Future.delayed(const Duration(milliseconds: 50));
+        bloc.add(const SearchQueryChanged('flutter'));
+        // Chờ vượt quá ngưỡng debounce (300ms) để request cuối cùng được kích hoạt
+        await Future.delayed(const Duration(milliseconds: 350));
+      },
+      expect: () => [
+        const SearchLoadingState(),
+        const SearchSuccessState(
+          items: ['Flutter Architecture', 'Flutter Testing'],
+          hasNextPage: false,
+          pageIndex: 1,
+          query: 'flutter',
+        ),
+      ],
+      verify: (_) {
+        // Xác minh chỉ có DUY NHẤT 1 cuộc gọi mạng được thực hiện cho từ khóa cuối
+        verify(() => repository.searchProducts('flutter', 1)).called(1);
+        verifyNever(() => repository.searchProducts('f', 1));
+        verifyNever(() => repository.searchProducts('flut', 1));
+      },
+    );
+  });
+}
+```
+
+---
+
+### 3.7 — Bước 7: Thiết Lập Hệ Sinh Thái Giám Sát Tập Trung Với `AppBlocObserver`
 
 ```dart
 // lib/core/bloc/app_bloc_observer.dart
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
 final class AppBlocObserver extends BlocObserver {
-  const AppBlocObserver({required AnalyticsService analytics})
-      : _analytics = analytics;
-  final AnalyticsService _analytics;
+  const AppBlocObserver();
 
   @override
   void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
     super.onEvent(bloc, event);
-    debugPrint('[${bloc.runtimeType}] Event: ${event.runtimeType}');
+    debugPrint('[BLoC Event] ${bloc.runtimeType} -> ${event.runtimeType}');
   }
 
   @override
@@ -365,12 +614,10 @@ final class AppBlocObserver extends BlocObserver {
     Transition<dynamic, dynamic> transition,
   ) {
     super.onTransition(bloc, transition);
-    // Log transition chỉ trong debug mode
     assert(() {
       debugPrint(
-        '[${bloc.runtimeType}] '
-        '${transition.currentState.runtimeType} → '
-        '${transition.nextState.runtimeType}',
+        '[BLoC Transition] ${bloc.runtimeType}: '
+        '${transition.currentState.runtimeType} -> ${transition.nextState.runtimeType}',
       );
       return true;
     }());
@@ -379,90 +626,73 @@ final class AppBlocObserver extends BlocObserver {
   @override
   void onError(BlocBase<dynamic> bloc, Object error, StackTrace stackTrace) {
     super.onError(bloc, error, stackTrace);
-    // Gửi lên Crashlytics trong production
-    unawaited(_analytics.logError(
-      error: error,
-      stackTrace: stackTrace,
-      context: bloc.runtimeType.toString(),
-    ));
+    debugPrint('[BLoC ERROR] ${bloc.runtimeType}: $error');
+    // Gửi lỗi lên Crashlytics hoặc Sentry tại môi trường Production
   }
 }
-
-// main.dart
-Bloc.observer = AppBlocObserver(analytics: getIt<AnalyticsService>());
 ```
 
 ---
 
-## Phần 4 — Profiling & Performance Trade-offs
+## Phần 4 — Best Practices & Phòng Chống Cạm Bẫy (Defensive Engineering)
 
-### Benchmark: Sequential vs Restartable vs Droppable với search 500ms latency
+### 4.1 — ❌ Anti-pattern 1: Sử Dụng `restartable()` Cho Sự Kiện Thanh Toán Hoặc Giao Dịch
 
-```
-Test: User gõ 5 ký tự (mỗi 100ms), API latency 500ms
+#### Mô tả lỗi:
+Gắn `restartable()` vào sự kiện bấm nút thanh toán tiền:
 
-SEQUENTIAL:
-- Tổng thời gian: 5 * 500ms = 2500ms (tuần tự)
-- API calls: 5 (tất cả chạy)
-- Kết quả hiển thị: Sai (hiện kết quả cũ sau cùng)
-- Memory (peak): 5 concurrent responses in buffer
-
-RESTARTABLE (debounce 300ms):
-- Tổng thời gian: 300ms wait + 500ms API = 800ms
-- API calls: 1 (chỉ query cuối cùng)
-- Kết quả hiển thị: Đúng (luôn là query mới nhất)
-- Memory: 1 response in buffer
-- Cost reduction: 80% fewer API calls → giảm server cost
-
-DROPPABLE (cho load-next-page):
-- Tổng thời gian: 500ms (1 call)
-- API calls: 1 (event thứ 2,3,4,5 bị drop)
-- Kết quả: Không duplicate page load
-- Memory: 1 response in buffer
+```dart
+// ❌ LỖI NGUY HIỂM: Gán restartable cho thao tác trừ tiền
+on<SubmitPaymentEvent>(_onPayment, transformer: restartable());
 ```
 
-| Scenario | Transformer | API calls | Kết quả đúng | UX |
-|:---|:---:|:---:|:---:|:---|
-| Search typing | `restartable + debounce` | 1 | ✅ | Nhanh, đúng |
-| Submit form | `sequential` hoặc `droppable` | 1 | ✅ | Không double-submit |
-| Load more | `droppable` | 1 | ✅ | Không duplicate |
-| Analytics log | `concurrent` | N | ✅ | Fire-and-forget |
-| Filter change | `sequential` | 1 | ✅ | Đợi search cũ xong |
+#### Phân tích cơ chế gây lỗi:
+Khi người dùng bấm nút 2 lần liên tiếp, sự kiện thứ nhất vừa gửi gói tin HTTP đi thì bị `restartable()` hủy bỏ luồng Stream phía client. Client ngắt kết nối và gửi request thứ hai. Tuy nhiên, backend đã kịp nhận request thứ nhất và tiến hành trừ tiền. Kết quả là tài khoản bị trừ tiền 2 lần và client chỉ ghi nhận 1 giao dịch.
+
+#### Biện pháp phòng chống:
+Các tác vụ thanh toán hoặc ghi dữ liệu quan trọng **bắt buộc phải sử dụng `droppable()`** hoặc **`sequential()`** kết hợp với Idempotency Key.
 
 ---
 
-## Phần 5 — Production Checklist
+### 4.2 — ❌ Anti-pattern 2: Tự Đăng Ký `stream.listen()` Thủ Công Trong BLoC
 
+#### Mô tả lỗi:
+Lắng nghe một Stream bên ngoài bằng `_repository.watchData().listen(...)` mà không quản lý biến hủy `StreamSubscription`:
+
+```dart
+// ❌ LỖI: Rò rỉ StreamSubscription
+SearchBloc(...) {
+  _repository.dataStream.listen((data) {
+    add(DataReceivedEvent(data)); // Rò rỉ bộ nhớ khi BLoC bị close()!
+  });
+}
 ```
-[ ] ❌ Dùng sequential (default) cho search/filter events
-    ✅ restartable hoặc debounce(restartable) cho search
-    Lý do: Sequential block UI khi latency cao, kết quả stale
 
-[ ] ❌ Không debounce keystroke event
-    ✅ Debounce 250-350ms cho text input
-    Lý do: 1 user gõ "iphone 14" = 9 API calls thay vì 1
+#### Biện pháp phòng chống:
+Luôn luôn sử dụng phương thức tích hợp sẵn **`emit.forEach`** hoặc **`emit.onEach`** của BLoC. Cơ chế này tự động quản lý vòng đời hủy StreamSubscription ngay khi BLoC được giải phóng (`close()`).
 
-[ ] ❌ Dùng concurrent cho event có shared mutable state
-    ✅ concurrent chỉ cho fire-and-forget, analytics, non-critical
-    Lý do: Race condition khi 2 event cùng write cùng state
+---
 
-[ ] ❌ Event handler có try-catch nuốt lỗi im lặng
-    ✅ Dùng addError() để gửi đến BlocObserver
-    Lý do: Lỗi im lặng không xuất hiện trong Crashlytics
+## Phần 5 — Khảo Sát Bản Chất Kỹ Thuật & Thử Thách Thẩm Định
 
-[ ] ❌ BLoC subscribe stream mà không dùng emit.forEach
-    ✅ Luôn dùng emit.forEach hoặc emit.onEach cho stream
-    Lý do: emit.forEach tự động cancel subscription khi BLoC closed
+### 5.1 — Khảo Sát Bản Chất Kỹ Thuật
 
-[ ] ❌ BLoC giữ reference đến BuildContext
-    ✅ BLoC không biết về Flutter Widget/Context — chỉ emit states
-    Lý do: Memory leak và crash khi context bị dispose
+#### Câu hỏi 1: Về mặt kiến trúc Dart Event Loop, sự khác biệt giữa `asyncExpand` (dùng trong sequential) và `switchMap` (dùng trong restartable) là gì?
+*Phân tích kỹ thuật:*
+- **`asyncExpand` (Sequential)**: Khi một phần tử mới đến trên Stream, `asyncExpand` chuyển nó vào hàng đợi FIFO và chờ đợi `Stream` con được trả về bởi mapper hoàn tất phát xạ (Emit) xong toàn bộ dữ liệu mới tiếp tục xử lý phần tử kế tiếp trong Event Loop.
+- **`switchMap` (Restartable)**: Khi một phần tử mới xuất hiện, `switchMap` ngay lập tức gọi phương thức hủy `cancel()` trên `StreamSubscription` của Stream con đang chạy dở dang, giải phóng tài nguyên CPU/Network của tác vụ trước đó và đăng ký lắng nghe ngay Stream con mới.
 
-[ ] ❌ 1 BLoC xử lý quá nhiều concern (search + filter + cart + analytics)
-    ✅ 1 BLoC = 1 domain concern; delegate sang UseCase để orchestrate
-    Lý do: Khó test, khó maintain, event transformer conflict
+---
 
-[ ] ❌ Không có BlocObserver trong production
-    ✅ Implement AppBlocObserver với Crashlytics integration
-    Lý do: Không có visibility khi BLoC throw error ở production
-```
+#### Câu hỏi 2: Tại sao `droppable()` lại là giải pháp tối ưu nhất cho tính năng Infinite Scrolling Pagination?
+*Phân tích kỹ thuật:*
+Khi người dùng cuộn nhanh về đáy danh sách, sự kiện `ScrollNotification` có thể kích hoạt nhiều lần trong vài chục miligiây. Nếu dùng `sequential()`, hệ thống sẽ tải dồn dập trang 2, trang 3, trang 4 cùng lúc. Nếu dùng `concurrent()`, các trang phản hồi lộn xộn làm sai thứ tự danh sách. `droppable()` bỏ qua hoàn toàn các tín hiệu cuộn thừa thãi trong lúc trang hiện tại đang tải, chỉ tiếp nhận yêu cầu tải tiếp theo sau khi trang cũ đã được nối vào danh sách thành công.
+
+---
+
+### 5.2 — Bài Tập Thực Hành: Kiểm Thử Concurrency Policy Bằng Virtual Time
+
+**Yêu cầu**:
+1. Sử dụng package `bloc_test` để viết Unit Test cho `SearchBloc`.
+2. Kiểm thử kịch bản: Gửi 3 sự kiện `SearchQueryChanged` với độ trễ giữa các lần là 100ms (nhỏ hơn khoảng thời gian debounce 300ms).
+3. Xác minh rằng: Repository chỉ nhận duy nhất 1 cuộc gọi mạng với từ khóa của sự kiện cuối cùng, và BLoC phát xạ chính xác chuỗi trạng thái: `[SearchInitialState, SearchLoadingState, SearchSuccessState]`.
